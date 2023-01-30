@@ -8,8 +8,8 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class ConfigReader {
-
-    public Config read(String configFile) {
+    private ConfigReader() {}
+    public static Config read(String configFile) throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         try {
             Path configPath = Paths.get(System.getProperty("user.dir"), configFile);
@@ -18,27 +18,12 @@ public class ConfigReader {
             log.info("Use customized config: {}", config.toString());
             return config;
         } catch (Exception ex) {
-            try {
-                InputStream configStream= getDefaultConfig();
-                Config config = mapper.readValue(configStream, Config.class);
-                log.info("Use default config: {}", config.toString());
-                return config;
-            } catch (Exception e) {
-                log.info("Load default config failed, ", e);
-                return new Config();
-            }
-        }
-    }
-
-    private InputStream getDefaultConfig() {
-
-        ClassLoader classLoader = getClass().getClassLoader();
-        InputStream inputStream = classLoader.getResourceAsStream("config.json");
-
-        if (inputStream == null) {
-            throw new IllegalArgumentException("default config file not found! ");
-        } else {
-            return inputStream;
+            ClassLoader classLoader = ConfigReader.class.getClassLoader();
+            InputStream configStream= classLoader.getResourceAsStream("config.json");
+            Config config = mapper.readValue(configStream, Config.class);
+            log.warn("customized config file not found, Use default config: {}",
+                config.toString());
+            return config;
         }
     }
 }
