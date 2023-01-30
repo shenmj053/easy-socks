@@ -1,8 +1,6 @@
 package org.easysocks.ssserver.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.netty.util.internal.logging.InternalLogger;
-import io.netty.util.internal.logging.InternalLoggerFactory;
 import java.io.InputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;

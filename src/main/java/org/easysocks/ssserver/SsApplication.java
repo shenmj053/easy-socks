@@ -30,17 +30,13 @@ public class SsApplication {
         SsServer server;
         if (commandLine.hasOption("server")) {
             server = new SsRemoteServer(config);
-            log.info("Run ss server");
         } else {
             server = new SsLocalClient(config);
-            log.info("Run ss client");
         }
         try {
             server.start();
         } catch (Exception e) {
-            e.printStackTrace();
-            server.stop();
-            System.exit(1);
+            log.info("Server start error {}", e.getMessage(), e);
         }
     }
 

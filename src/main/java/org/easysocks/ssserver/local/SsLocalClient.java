@@ -13,7 +13,6 @@ import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.easysocks.ssserver.SsServer;
 import org.easysocks.ssserver.config.Config;
-import org.easysocks.ssserver.config.ConfigReader;
 
 @Slf4j
 public class SsLocalClient implements SsServer {
@@ -37,59 +36,38 @@ public class SsLocalClient implements SsServer {
     }
 
     public void start() throws Exception {
-        ServerBootstrap tcpBootstrap = new ServerBootstrap();
-        tcpBootstrap.group(bossGroup, workerGroup).channel(NioServerSocketChannel.class)
-            .option(ChannelOption.SO_RCVBUF, 32 * 1024)
-            .childOption(ChannelOption.SO_KEEPALIVE, true)
-            .childHandler(new ChannelInitializer<NioSocketChannel>() {
-                @Override
-                protected void initChannel(NioSocketChannel ch) throws Exception {
-                    ch.pipeline()
-                        .addLast("timeout", new IdleStateHandler(0, 0, 120, TimeUnit.SECONDS) {
-                            @Override
-                            protected IdleStateEvent newIdleStateEvent(IdleState state, boolean first) {
-                                ch.close();
-                                return super.newIdleStateEvent(state, first);
-                            }
-                        })
-                        .addLast(new SocksPortUnificationServerHandler())
-                        .addLast(new SocksServerHandler())
-                        .addLast(new SsLocalTcpProxyHandler(
-                            remoteSocks5server, remoteSocks5Port,
-                            cipherName, cipherPassword
-                        ));
-                }
-            });
-
-        tcpBootstrap.bind(localSocks5Server, localSocks5Port).sync();
-
-        log.info("SS local server listen at {}: {}", localSocks5Server, localSocks5Port);
-    }
-
-    public void stop() {
-        if (bossGroup != null) {
-            bossGroup.shutdownGracefully();
-        }
-        if (workerGroup != null) {
-            workerGroup.shutdownGracefully();
-        }
-        log.info("Stop local server!");
-    }
-
-    public static void main(String[] args) {
-        String configFile = "";
-        if (args.length == 1) {
-            configFile = args[0];
-        }
-        Config config = new ConfigReader().read(configFile);
-        SsLocalClient server = new SsLocalClient(config);
         try {
-            server.start();
-        } catch (Exception e) {
-            e.printStackTrace();
-            server.stop();
-            System.exit(1);
+            ServerBootstrap tcpBootstrap = new ServerBootstrap();
+            tcpBootstrap.group(bossGroup, workerGroup).channel(NioServerSocketChannel.class)
+                .option(ChannelOption.SO_RCVBUF, 32 * 1024)
+                .childOption(ChannelOption.SO_KEEPALIVE, true)
+                .childHandler(new ChannelInitializer<NioSocketChannel>() {
+                    @Override
+                    protected void initChannel(NioSocketChannel ch) throws Exception {
+                        ch.pipeline()
+                            .addLast("timeout", new IdleStateHandler(0, 0, 120, TimeUnit.SECONDS) {
+                                @Override
+                                protected IdleStateEvent newIdleStateEvent(IdleState state, boolean first) {
+                                    ch.close();
+                                    return super.newIdleStateEvent(state, first);
+                                }
+                            })
+                            .addLast(new SocksPortUnificationServerHandler())
+                            .addLast(new SocksServerHandler())
+                            .addLast(new SsLocalTcpProxyHandler(
+                                remoteSocks5server, remoteSocks5Port,
+                                cipherName, cipherPassword
+                            ));
+                    }
+                });
+            log.info("SS local server listen at {}: {}", localSocks5Server, localSocks5Port);
+            ChannelFuture f = tcpBootstrap.bind(localSocks5Server, localSocks5Port).sync();;
+            f.channel().closeFuture().sync();
+        } finally {
+            log.info("Stop local server!");
+            bossGroup.shutdownGracefully().sync();
+            workerGroup.shutdownGracefully().sync();
+            log.info("Stop local server!");
         }
     }
-
 }
