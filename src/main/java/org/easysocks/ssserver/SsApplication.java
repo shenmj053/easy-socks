@@ -16,19 +16,43 @@ import org.easysocks.ssserver.remote.SsRemoteServer;
 public class SsApplication {
     public static void main(String[] args) throws ParseException {
         Options options = new Options();
-        Option option = new Option("s", "server", false, "run as server");
-        options.addOption(option);
+        Option serverOption = new Option(
+            "s",
+            "server",
+            false,
+            "run as server");
+        options.addOption(serverOption);
 
-        option = new Option("c", "config", true, "config file");
-        options.addOption(option);
+        Option configOption = new Option(
+            "c",
+            "config",
+            true,
+            "config file");
+        options.addOption(configOption);
 
         CommandLineParser parser = new DefaultParser();
-        CommandLine commandLine = parser.parse(options, args);
+        CommandLine commandLine;
+        try {
+            commandLine = parser.parse(options, args);
+        } catch (ParseException e) {
+            log.warn("\n"
+                + "Usage: java -jar <jar file path>\n"
+                + "Options: \n"
+                + "-s, --server     run as remote server\n"
+                + "-c, --config     customized config file name in your workdir\n");
+            return;
+        }
 
-        String configFile = commandLine.getOptionValue("config", "");
-        Config config = new ConfigReader().read(configFile);
+        String configFile = commandLine.getOptionValue(configOption);
+        Config config;
+        try {
+            config = ConfigReader.read(configFile);
+        } catch (Exception e) {
+            log.error("Server start failed, unable to load config file.");
+            return;
+        }
         SsServer server;
-        if (commandLine.hasOption("server")) {
+        if (commandLine.hasOption(serverOption)) {
             server = new SsRemoteServer(config);
         } else {
             server = new SsLocalClient(config);
