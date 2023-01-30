@@ -1,6 +1,7 @@
 package org.easysocks.ssserver.remote;
 
 import io.netty.bootstrap.ServerBootstrap;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
@@ -17,7 +18,6 @@ import org.easysocks.ssserver.codec.SsCipherCodec;
 import org.easysocks.ssserver.common.SsGlobalAttribute;
 import org.easysocks.ssserver.codec.SsProtocolCodec;
 import org.easysocks.ssserver.config.Config;
-import org.easysocks.ssserver.config.ConfigReader;
 
 @Slf4j
 public class SsRemoteServer implements SsServer {
@@ -25,8 +25,8 @@ public class SsRemoteServer implements SsServer {
     private static final EventLoopGroup bossGroup = new NioEventLoopGroup(1);
     private static final EventLoopGroup workerGroup = new NioEventLoopGroup();
 
-    private String remoteSocks5Server;
-    private int remoteSocks5Port;
+    private final String remoteSocks5Server;
+    private final int remoteSocks5Port;
     private final String cipherName;
     private final String cipherPassword;
 
@@ -38,66 +38,47 @@ public class SsRemoteServer implements SsServer {
     }
 
     public void start() throws Exception {
-        ServerBootstrap tcpBootstrap = new ServerBootstrap();
-        tcpBootstrap.group(bossGroup, workerGroup).channel(NioServerSocketChannel.class)
-            .option(ChannelOption.SO_BACKLOG, 5120)
-            .option(ChannelOption.SO_RCVBUF, 32 * 1024)
-            .childOption(ChannelOption.SO_KEEPALIVE, true)
-            .childOption(ChannelOption.TCP_NODELAY, false)
-            .childOption(ChannelOption.SO_LINGER, 1)
-            .childHandler(new ChannelInitializer<NioSocketChannel>() {
-                @Override
-                protected void initChannel(NioSocketChannel ch) throws Exception {
-                    ch.attr(SsGlobalAttribute.IS_UDP).set(false);
-                    ch.pipeline()
-                        .addLast("timeout", new IdleStateHandler(0, 0, 300, TimeUnit.SECONDS) {
-                            @Override
-                            protected IdleStateEvent newIdleStateEvent(IdleState state, boolean first) {
-                                ch.close();
-                                return super.newIdleStateEvent(state, first);
-                            }
-                        })
-                        //ss message received from client
-                        .addLast(new SsRemoteServerReceiverHandler())
-                        //ss message send to client
-                        .addLast(new SsRemoteServerSenderHandler())
-                        //ss-cypt
-                        .addLast("ssCipherCodec", new SsCipherCodec(cipherName, cipherPassword))
-                        //ss-protocol
-                        .addLast(new SsProtocolCodec())
-                        //ss-proxy
-                        .addLast("ssTcpProxy", new SsRemoteTcpProxyHandler())
-                    ;
-                }
-            });
-
-        tcpBootstrap.bind(remoteSocks5Server, remoteSocks5Port).sync();
-    }
-
-    public void stop() {
-        if (bossGroup != null) {
-            bossGroup.shutdownGracefully();
-        }
-        if (workerGroup != null) {
-            workerGroup.shutdownGracefully();
-        }
-    }
-
-
-    public static void main(String[] args) {
-        String configFile = "";
-        if (args.length == 1) {
-            configFile = args[0];
-        }
-        Config config = new ConfigReader().read(configFile);
-        SsRemoteServer server = new SsRemoteServer(config);
         try {
-            server.start();
-        } catch (Exception e) {
-            log.error(e.getMessage(), e);
-            server.stop();
-            System.exit(1);
+            ServerBootstrap tcpBootstrap = new ServerBootstrap();
+            tcpBootstrap.group(bossGroup, workerGroup).channel(NioServerSocketChannel.class)
+                .option(ChannelOption.SO_BACKLOG, 5120)
+                .option(ChannelOption.SO_RCVBUF, 32 * 1024)
+                .childOption(ChannelOption.SO_KEEPALIVE, true)
+                .childOption(ChannelOption.TCP_NODELAY, false)
+                .childOption(ChannelOption.SO_LINGER, 1)
+                .childHandler(new ChannelInitializer<NioSocketChannel>() {
+                    @Override
+                    protected void initChannel(NioSocketChannel ch) throws Exception {
+                        ch.attr(SsGlobalAttribute.IS_UDP).set(false);
+                        ch.pipeline()
+                            .addLast("timeout", new IdleStateHandler(0, 0, 300, TimeUnit.SECONDS) {
+                                @Override
+                                protected IdleStateEvent newIdleStateEvent(IdleState state, boolean first) {
+                                    ch.close();
+                                    return super.newIdleStateEvent(state, first);
+                                }
+                            })
+                            //ss message received from client
+                            .addLast(new SsRemoteServerReceiverHandler())
+                            //ss message send to client
+                            .addLast(new SsRemoteServerSenderHandler())
+                            //ss-cypt
+                            .addLast("ssCipherCodec", new SsCipherCodec(cipherName, cipherPassword))
+                            //ss-protocol
+                            .addLast(new SsProtocolCodec())
+                            //ss-proxy
+                            .addLast("ssTcpProxy", new SsRemoteTcpProxyHandler())
+                        ;
+                    }
+                });
+            log.info("SS remote server listen at {}: {}", remoteSocks5Server, remoteSocks5Port);
+            ChannelFuture f = tcpBootstrap.bind(remoteSocks5Server, remoteSocks5Port).sync();
+            f.channel().closeFuture().sync();
+        } finally {
+            log.info("Stop remote server!");
+            bossGroup.shutdownGracefully().sync();
+            workerGroup.shutdownGracefully().sync();
+            log.info("Stop remote server!");
         }
     }
-
 }
