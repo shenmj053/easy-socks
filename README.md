@@ -4,7 +4,7 @@ It is just a toy java implementation of Shadowsocks, base on netty4 framework.
 ## build
   `./mvnw package`
 
-## config
+## ssConfig
 ```json
 {
   "server_address": "remote server public ip address",
@@ -17,9 +17,9 @@ It is just a toy java implementation of Shadowsocks, base on netty4 framework.
 
 ## run
 - as client
-  `java -jar easy-socks-0.0.1-SNAPSHOT-client-exec.jar -c config.json`
+  `java -jar easy-socks-0.0.1-SNAPSHOT-client-exec.jar -c ssConfig.json`
 - as server
-  `java -jar easy-socks-0.0.1-SNAPSHOT-server-exec.jar -c config.json --server`
+  `java -jar easy-socks-0.0.1-SNAPSHOT-server-exec.jar -c ssConfig.json --server`
 
 ## verify usage
 run command line on local host

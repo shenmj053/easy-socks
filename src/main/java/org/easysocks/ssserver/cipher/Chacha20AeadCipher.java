@@ -9,16 +9,15 @@ import java.util.Arrays;
 import lombok.extern.slf4j.Slf4j;
 import org.bouncycastle.crypto.InvalidCipherTextException;
 import org.bouncycastle.crypto.digests.SHA1Digest;
-import org.bouncycastle.crypto.engines.AESEngine;
 import org.bouncycastle.crypto.generators.HKDFBytesGenerator;
-import org.bouncycastle.crypto.modes.AEADBlockCipher;
-import org.bouncycastle.crypto.modes.GCMBlockCipher;
+import org.bouncycastle.crypto.modes.AEADCipher;
+import org.bouncycastle.crypto.modes.ChaCha20Poly1305;
 import org.bouncycastle.crypto.params.AEADParameters;
 import org.bouncycastle.crypto.params.HKDFParameters;
 import org.bouncycastle.crypto.params.KeyParameter;
 
 @Slf4j
-public class Aes256GcmCipher implements AeadCipher {
+public class Chacha20AeadCipher implements AeadCipher {
     private static final int PAYLOAD_SIZE_MASK = 0x3FFF;
     private static final byte[] INFO = "ss-subkey".getBytes();
     private static final int TAG_LENGTH = 16;
@@ -33,13 +32,13 @@ public class Aes256GcmCipher implements AeadCipher {
     private byte[] decodeSubKey;
     private final byte[] encodeNonce = new byte[NONCE_LENGTH];
     private final byte[] decodeNonce = new byte[NONCE_LENGTH];
-    private AEADBlockCipher encodeCipher;
-    private AEADBlockCipher decodeCipher;
+    private AEADCipher encodeCipher;
+    private AEADCipher decodeCipher;
     private final byte[] decodeBuffer = new byte[2 + TAG_LENGTH + PAYLOAD_SIZE_MASK + TAG_LENGTH];
     private int payloadLenRead = 0;
     private int payloadRead = 0;
 
-    public Aes256GcmCipher(AeadCipherEnum aeadCipher, String password) {
+    public Chacha20AeadCipher(AeadCipherEnum aeadCipher, String password) {
         this.aeadCipher = aeadCipher;
         this.masterKey = password;
     }
@@ -53,7 +52,7 @@ public class Aes256GcmCipher implements AeadCipher {
             desByteBuf.writeBytes(salt);
             System.out.println("encrypt salt: " + Arrays.toString(salt));
             encodeSubKey = genSubKey(salt);
-            encodeCipher = new GCMBlockCipher(new AESEngine());
+            encodeCipher = new ChaCha20Poly1305();
             encryptSaltSet = true;
         }
         if (!isForUdp) {
@@ -77,7 +76,7 @@ public class Aes256GcmCipher implements AeadCipher {
             srcBuf.readBytes(salt, 0, salt.length);
             System.out.println("decrypt salt: " + Arrays.toString(salt));
             decodeSubKey = genSubKey(salt);
-            decodeCipher = new GCMBlockCipher(new AESEngine());
+            decodeCipher = new ChaCha20Poly1305();
             decryptSaltSet = true;
             remaining = new byte[srcBuf.readableBytes()];
             srcBuf.readBytes(remaining);
@@ -269,16 +268,14 @@ public class Aes256GcmCipher implements AeadCipher {
     }
 
     public static void main(String[] args) throws Exception {
-        Aes256GcmCipher aes256GcmCipher1 = new Aes256GcmCipher(
-            AeadCipherEnum.AEAD_AES_256_GCM, "abcde");
-//        byte[] rawBytes = new byte[2638366];
-//        Arrays.fill(rawBytes, (byte) 'd');
-        byte[] rawBytes = "abcdefgsfaffafa".getBytes();
+        Chacha20AeadCipher aes256GcmCipher1 = new Chacha20AeadCipher(
+            AeadCipherEnum.AEAD_CHACHA20_POLY1305, "aes-256-gcm");
+        byte[] rawBytes = "是发放连接了 *（JFDSD∂åƒåƒ".getBytes();
         byte[] encodeOutput = aes256GcmCipher1.encrypt(rawBytes);
         System.out.println(rawBytes.length);
 
-        Aes256GcmCipher aes256GcmCipher2 = new Aes256GcmCipher(
-            AeadCipherEnum.AEAD_AES_256_GCM, "abcde");
+        Chacha20AeadCipher aes256GcmCipher2 = new Chacha20AeadCipher(
+            AeadCipherEnum.AEAD_CHACHA20_POLY1305, "aes-256-gcm");
         byte[] decodeOutput = aes256GcmCipher2.decrypt(encodeOutput);
         System.out.println(decodeOutput.length);
         System.out.println(Arrays.toString(decodeOutput));

@@ -1,5 +1,6 @@
 package org.easysocks.ssserver;
 
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -7,7 +8,10 @@ import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
-import org.easysocks.ssserver.config.Config;
+import org.easysocks.ssserver.cipher.AeadCipher;
+import org.easysocks.ssserver.cipher.AeadCipherEnum;
+import org.easysocks.ssserver.cipher.AeadCipherFactory;
+import org.easysocks.ssserver.config.SsConfig;
 import org.easysocks.ssserver.config.ConfigReader;
 import org.easysocks.ssserver.local.SsLocalClient;
 import org.easysocks.ssserver.remote.SsRemoteServer;
@@ -44,18 +48,25 @@ public class SsApplication {
         }
 
         String configFile = commandLine.getOptionValue(configOption);
-        Config config;
+        SsConfig ssConfig;
         try {
-            config = ConfigReader.read(configFile);
+            ssConfig = ConfigReader.read(configFile);
         } catch (Exception e) {
             log.error("Server start failed, unable to load config file.");
             return;
         }
+
+        Optional<AeadCipherEnum> aeadCipherEnumOptional = AeadCipherEnum.parse(ssConfig.getMethod());
+        if (!aeadCipherEnumOptional.isPresent()) {
+            log.error("Invalid AEAD cipher method {}", ssConfig.getMethod());
+            return;
+        }
+
         SsServer server;
         if (commandLine.hasOption(serverOption)) {
-            server = new SsRemoteServer(config);
+            server = new SsRemoteServer(ssConfig);
         } else {
-            server = new SsLocalClient(config);
+            server = new SsLocalClient(ssConfig);
         }
         try {
             server.start();

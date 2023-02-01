@@ -12,27 +12,18 @@ import io.netty.handler.timeout.IdleStateHandler;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.easysocks.ssserver.SsServer;
-import org.easysocks.ssserver.config.Config;
+import org.easysocks.ssserver.config.SsConfig;
 
 @Slf4j
 public class SsLocalClient implements SsServer {
     private static final EventLoopGroup bossGroup = new NioEventLoopGroup(1);
     private static final EventLoopGroup workerGroup = new NioEventLoopGroup();
 
-    private final String localSocks5Server;
-    private final int localSocks5Port;
-    private final String remoteSocks5server;
-    private final int remoteSocks5Port;
-    private final String cipherName;
-    private final String cipherPassword;
+    private static final String localSocks5Server = "0.0.0.0";
+    private final SsConfig ssConfig;
 
-    public SsLocalClient(Config config) {
-        localSocks5Server = "0.0.0.0";
-        localSocks5Port = config.getClientPort();
-        remoteSocks5server = config.getServerAddress();
-        remoteSocks5Port = config.getServerPort();
-        cipherName = config.getMethod();
-        cipherPassword = config.getPassword();
+    public SsLocalClient(SsConfig ssConfig) {
+        this.ssConfig = ssConfig;
     }
 
     public void start() throws Exception {
@@ -54,14 +45,11 @@ public class SsLocalClient implements SsServer {
                             })
                             .addLast(new SocksPortUnificationServerHandler())
                             .addLast(new SocksServerHandler())
-                            .addLast(new SsLocalTcpProxyHandler(
-                                remoteSocks5server, remoteSocks5Port,
-                                cipherName, cipherPassword
-                            ));
+                            .addLast(new SsLocalTcpProxyHandler(ssConfig));
                     }
                 });
-            log.info("SS local server listen at {}: {}", localSocks5Server, localSocks5Port);
-            ChannelFuture f = tcpBootstrap.bind(localSocks5Server, localSocks5Port).sync();;
+            log.info("SS local server listen at {}: {}", localSocks5Server, ssConfig.getClientPort());
+            ChannelFuture f = tcpBootstrap.bind(localSocks5Server, ssConfig.getClientPort()).sync();;
             f.channel().closeFuture().sync();
         } finally {
             log.info("Stop local server!");

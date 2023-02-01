@@ -16,10 +16,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
+import org.easysocks.ssserver.cipher.AeadCipher;
+import org.easysocks.ssserver.cipher.AeadCipherFactory;
 import org.easysocks.ssserver.common.SsAddressRequest;
 import org.easysocks.ssserver.codec.SsCipherCodec;
 import org.easysocks.ssserver.common.SsGlobalAttribute;
 import org.easysocks.ssserver.codec.SsProtocolCodec;
+import org.easysocks.ssserver.config.SsConfig;
 
 @Slf4j
 public class SsLocalTcpProxyHandler extends SimpleChannelInboundHandler<ByteBuf> {
@@ -30,17 +33,12 @@ public class SsLocalTcpProxyHandler extends SimpleChannelInboundHandler<ByteBuf>
     private Channel proxyChannel;
     private Bootstrap proxyClient;
     private List<ByteBuf> clientBuffs;
+    private final SsConfig ssConfig;
 
-    private final String cipherName;
-
-    private final String cipherPassword;
-
-
-    public SsLocalTcpProxyHandler(String server, Integer port, String cipherName, String cipherPassword) {
+    public SsLocalTcpProxyHandler(SsConfig ssConfig) {
         super(false);
-        ssRemoteServer = new InetSocketAddress(server, port);
-        this.cipherName = cipherName;
-        this.cipherPassword = cipherPassword;
+        ssRemoteServer = new InetSocketAddress(ssConfig.getServerAddress(), ssConfig.getServerPort());
+        this.ssConfig = ssConfig;
     }
 
     @Override
@@ -56,8 +54,8 @@ public class SsLocalTcpProxyHandler extends SimpleChannelInboundHandler<ByteBuf>
 
         // First time connect to remote SS server.
         if (proxyChannel == null && proxyClient == null) {
+            AeadCipher aeadCipher = AeadCipherFactory.create(ssConfig);
             proxyClient = new Bootstrap();
-
             proxyClient.group(clientChannel.eventLoop()).channel(NioSocketChannel.class)
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 60 * 1000)
                 .option(ChannelOption.SO_KEEPALIVE, true)
@@ -76,7 +74,7 @@ public class SsLocalTcpProxyHandler extends SimpleChannelInboundHandler<ByteBuf>
                                     }
                                 }
                             )
-                            .addLast("ssCipherCodec", new SsCipherCodec(cipherName, cipherPassword))
+                            .addLast("ssCipherCodec", new SsCipherCodec(aeadCipher))
                             .addLast("ssProtocolCodec", new SsProtocolCodec(true))
                             .addLast("relay", new SimpleChannelInboundHandler<ByteBuf>(false) {
                                 @Override

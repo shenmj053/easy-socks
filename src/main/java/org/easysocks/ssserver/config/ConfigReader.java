@@ -9,21 +9,21 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class ConfigReader {
     private ConfigReader() {}
-    public static Config read(String configFile) throws Exception {
+    public static SsConfig read(String configFile) throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         try {
             Path configPath = Paths.get(System.getProperty("user.dir"), configFile);
-            Config config = mapper.readValue(configPath.toFile(), Config.class);
+            SsConfig ssConfig = mapper.readValue(configPath.toFile(), SsConfig.class);
 
-            log.info("Use customized config: {}", config.toString());
-            return config;
+            log.info("Use customized config: {}", ssConfig.toString());
+            return ssConfig;
         } catch (Exception ex) {
             ClassLoader classLoader = ConfigReader.class.getClassLoader();
             InputStream configStream= classLoader.getResourceAsStream("config.json");
-            Config config = mapper.readValue(configStream, Config.class);
+            SsConfig ssConfig = mapper.readValue(configStream, SsConfig.class);
             log.warn("customized config file not found, Use default config: {}",
-                config.toString());
-            return config;
+                ssConfig.toString());
+            return ssConfig;
         }
     }
 }

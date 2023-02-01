@@ -14,27 +14,21 @@ import io.netty.handler.timeout.IdleStateHandler;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.easysocks.ssserver.SsServer;
+import org.easysocks.ssserver.cipher.AeadCipher;
+import org.easysocks.ssserver.cipher.AeadCipherFactory;
 import org.easysocks.ssserver.codec.SsCipherCodec;
 import org.easysocks.ssserver.common.SsGlobalAttribute;
 import org.easysocks.ssserver.codec.SsProtocolCodec;
-import org.easysocks.ssserver.config.Config;
+import org.easysocks.ssserver.config.SsConfig;
 
 @Slf4j
 public class SsRemoteServer implements SsServer {
-
     private static final EventLoopGroup bossGroup = new NioEventLoopGroup(1);
     private static final EventLoopGroup workerGroup = new NioEventLoopGroup();
+    private final SsConfig ssConfig;
 
-    private final String remoteSocks5Server;
-    private final int remoteSocks5Port;
-    private final String cipherName;
-    private final String cipherPassword;
-
-    public SsRemoteServer(Config config) {
-        remoteSocks5Server = config.getServerAddress();
-        remoteSocks5Port = config.getServerPort();
-        cipherName = config.getMethod();
-        cipherPassword = config.getPassword();
+    public SsRemoteServer(SsConfig ssConfig) {
+        this.ssConfig = ssConfig;
     }
 
     public void start() throws Exception {
@@ -49,6 +43,7 @@ public class SsRemoteServer implements SsServer {
                 .childHandler(new ChannelInitializer<NioSocketChannel>() {
                     @Override
                     protected void initChannel(NioSocketChannel ch) throws Exception {
+                        AeadCipher aeadCipher = AeadCipherFactory.create(ssConfig);
                         ch.attr(SsGlobalAttribute.IS_UDP).set(false);
                         ch.pipeline()
                             .addLast("timeout", new IdleStateHandler(0, 0, 300, TimeUnit.SECONDS) {
@@ -63,7 +58,7 @@ public class SsRemoteServer implements SsServer {
                             //ss message send to client
                             .addLast(new SsRemoteServerSenderHandler())
                             //ss-cypt
-                            .addLast("ssCipherCodec", new SsCipherCodec(cipherName, cipherPassword))
+                            .addLast("ssCipherCodec", new SsCipherCodec(aeadCipher))
                             //ss-protocol
                             .addLast(new SsProtocolCodec())
                             //ss-proxy
@@ -71,8 +66,13 @@ public class SsRemoteServer implements SsServer {
                         ;
                     }
                 });
-            log.info("SS remote server listen at {}: {}", remoteSocks5Server, remoteSocks5Port);
-            ChannelFuture f = tcpBootstrap.bind(remoteSocks5Server, remoteSocks5Port).sync();
+            log.info("SS remote server listen at {}: {}",
+                ssConfig.getServerAddress(),
+                ssConfig.getServerPort());
+            ChannelFuture f = tcpBootstrap.bind(
+                ssConfig.getServerAddress(),
+                ssConfig.getServerPort())
+                .sync();
             f.channel().closeFuture().sync();
         } finally {
             log.info("Stop remote server!");

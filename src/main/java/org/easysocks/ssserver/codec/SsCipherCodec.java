@@ -6,16 +6,14 @@ import io.netty.channel.socket.DatagramPacket;
 import io.netty.handler.codec.MessageToMessageCodec;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
-import org.easysocks.ssserver.cipher.Aes256GcmCipher;
+import org.easysocks.ssserver.cipher.AeadCipher;
 
 @Slf4j
 public class SsCipherCodec extends MessageToMessageCodec<Object, Object> {
+    private final AeadCipher aeadCipher;
 
-    private final Aes256GcmCipher cipher;
-
-    public SsCipherCodec(String cipherName, String password) {
-        cipher = new Aes256GcmCipher(
-            cipherName, password);
+    public SsCipherCodec(AeadCipher aeadCipher) {
+        this.aeadCipher = aeadCipher;
     }
 
     @Override
@@ -63,7 +61,7 @@ public class SsCipherCodec extends MessageToMessageCodec<Object, Object> {
         byte[] srcBytes = new byte[buf.readableBytes()];
         buf.getBytes(0, srcBytes);
         try {
-            return cipher.encrypt(srcBytes);
+            return aeadCipher.encrypt(srcBytes);
         } catch (Exception e) {
             log.error("Failed to encrypt bytes, ", e);
             return new byte[]{};
@@ -74,7 +72,7 @@ public class SsCipherCodec extends MessageToMessageCodec<Object, Object> {
         byte[] srcBytes = new byte[buf.readableBytes()];
         buf.getBytes(0, srcBytes);
         try {
-            return cipher.decrypt(srcBytes);
+            return aeadCipher.decrypt(srcBytes);
         } catch (Exception e) {
             log.error("Failed to decrypt bytes, ", e);
             return new byte[]{};

@@ -1,7 +1,7 @@
 {
   "server_address":"0.0.0.0",
-  "server_port":5679,
-  "client_port":1235,
+  "server_port":5678,
+  "client_port":1234,
   "password":"super secret",
-  "method":"aes-256-gcm"
+  "method":"chacha20-ietf-poly1305"
 }
