@@ -23,6 +23,7 @@ import org.easysocks.ssserver.codec.SsCipherCodec;
 import org.easysocks.ssserver.common.SsGlobalAttribute;
 import org.easysocks.ssserver.codec.SsProtocolCodec;
 import org.easysocks.ssserver.config.SsConfig;
+import org.easysocks.ssserver.obfs.HttpSimpleObfs;
 
 @Slf4j
 public class SsLocalTcpProxyHandler extends SimpleChannelInboundHandler<ByteBuf> {
@@ -74,6 +75,7 @@ public class SsLocalTcpProxyHandler extends SimpleChannelInboundHandler<ByteBuf>
                                     }
                                 }
                             )
+                            .addLast("obfs", new HttpSimpleObfs(ssConfig, true))
                             .addLast("ssCipherCodec", new SsCipherCodec(aeadCipher))
                             .addLast("ssProtocolCodec", new SsProtocolCodec(true))
                             .addLast("relay", new SimpleChannelInboundHandler<ByteBuf>(false) {

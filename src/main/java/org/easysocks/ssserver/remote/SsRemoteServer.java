@@ -20,6 +20,7 @@ import org.easysocks.ssserver.codec.SsCipherCodec;
 import org.easysocks.ssserver.common.SsGlobalAttribute;
 import org.easysocks.ssserver.codec.SsProtocolCodec;
 import org.easysocks.ssserver.config.SsConfig;
+import org.easysocks.ssserver.obfs.HttpSimpleObfs;
 
 @Slf4j
 public class SsRemoteServer implements SsServer {
@@ -53,6 +54,7 @@ public class SsRemoteServer implements SsServer {
                                     return super.newIdleStateEvent(state, first);
                                 }
                             })
+                            .addLast("obfs", new HttpSimpleObfs(ssConfig, false))
                             //ss message received from client
                             .addLast(new SsRemoteServerReceiverHandler())
                             //ss message send to client

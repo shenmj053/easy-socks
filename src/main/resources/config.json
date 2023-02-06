@@ -3,5 +3,6 @@
   "server_port":5678,
   "client_port":1234,
   "password":"supersecret",
-  "method":"aes-256-gcm"
+  "method":"aes-256-gcm",
+  "server_name": "www.bing.com"
 }
