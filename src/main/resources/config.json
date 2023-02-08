@@ -4,5 +4,6 @@
   "client_port":1234,
   "password":"supersecret",
   "method":"aes-256-gcm",
-  "server_name": "www.bing.com"
+  "mock_server_name": "www.bing.com",
+  "mock_server_address": "202.89.233.100"
 }
