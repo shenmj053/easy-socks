@@ -134,21 +134,18 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
     }
 
     private ByteBuf serverNameIndicate(String serverUrl) {
-        ByteBuf sniBuf = Unpooled.buffer();
+        ByteBuf snieBuf = Unpooled.buffer();
         byte[] url = serverUrl.getBytes();
-        sniBuf.writeByte(0x00);
-        sniBuf.writeByte(url.length);
-        sniBuf.writeBytes(url);
-        sniBuf.writeBytes(new byte[]{0x00, 0x00});
-        sniBuf.writeByte(url.length + 2);
-        sniBuf.writeByte(url.length );
-        byte[] data = new byte[sniBuf.readableBytes()];
-        sniBuf.getBytes(0, data);
-        sniBuf.writeBytes(data);
-        return sniBuf;
+        snieBuf.writeByte(0x00);
+        snieBuf.writeShort(url.length);
+        snieBuf.writeBytes(url);
+        ByteBuf result = Unpooled.buffer();
+        result.writeBytes(new byte[]{0x00, 0x00});
+        result.writeByte(snieBuf.readableBytes() + 2);
+        result.writeByte(snieBuf.readableBytes());
+        snieBuf.readBytes(result);
+        return result;
     }
-
-
 
     private ByteBuf clientEncode(ByteBuf buf) throws NoSuchAlgorithmException, InvalidKeyException {
         if (hasSentHeader) {
@@ -156,6 +153,10 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
             return buf;
         }
         if (handshakeStatus == 8) {
+            // client application data
+            // 17 - type is 0x17 (application data)
+            // 03 03 - protocol version is "3,3" (TLS 1.2)
+            // 00 30 - 0x30 (48) bytes of application data follows
             ByteBuf result = Unpooled.buffer();
             while (buf.readableBytes() > 2048) {
                 byte[] randomBytes = new byte[2];
@@ -163,24 +164,49 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
                 ByteBuf tmp = Unpooled.buffer(2);
                 tmp.writeBytes(randomBytes);
                 int size = (int) Math.min(tmp.readUnsignedInt() % 4096 + 100, buf.readableBytes());
-                result.writeBytes(unhexlify("17"));
+                result.writeBytes(APPLICATION_DATA);
                 result.writeBytes(TLS_VERSION);
                 result.writeInt(size);
                 buf.readBytes(result, size);
             }
             if (buf.readableBytes() <= 0) {
-                result.writeBytes(unhexlify("17"));
+                // client application data header
+                result.writeBytes(APPLICATION_DATA);
                 result.writeBytes(TLS_VERSION);
                 result.writeInt(buf.readableBytes());
                 buf.readBytes(result, buf.readableBytes());
             }
             return result;
         } else if (handshakeStatus == 0) {
+            handshakeStatus = 1;
+            // client hello
+            // 16 - type is 0x16 (handshake record)
+            // 03 01 - protocol version is 3.1 (also known as TLS 1.0)
+            // 00 a5 - 0xA5 (165) bytes of handshake message follows
             ByteBuf tlsHeadBuf = Unpooled.buffer();
+            // Client Version
+            tlsHeadBuf.writeBytes(TLS_VERSION);
+            // Client Random
             tlsHeadBuf.writeBytes(packAuthData(clientId));
+            // Session ID length
+            // 32 bytes hardcode
+            tlsHeadBuf.writeBytes(unhexlify("20"));
+            // Session ID data
+            // clientId is 32 bytes
+            tlsHeadBuf.writeBytes(unhexlify(clientId));
+            // Cipher Suites 32 bytes
+            tlsHeadBuf.writeBytes(unhexlify("001cc02bc02fcca9cca8cc14cc13c00ac014c009c013009c0035002f000a"));
+            // Compression Methods
+            tlsHeadBuf.writeBytes(unhexlify("0100"));
+
+            // ext begin coding
+            ByteBuf ext = Unpooled.buffer();
+            // Extension - Server Name
             String host = ssConfig.getMockServerName();
-            tlsHeadBuf.writeBytes(serverNameIndicate(host));
-            tlsHeadBuf.writeBytes(unhexlify("00170000"));
+            ext.writeBytes(serverNameIndicate(host));
+
+            // extended master secret
+            ext.writeBytes(unhexlify("00170000"));
 
             if (!ticketBufCache.containsKey(host)) {
                 byte[] randomBytes = new byte[2];
@@ -192,40 +218,64 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
                 SecureRandom.getInstanceStrong().nextBytes(ticketRandomBytes);
                 ticketBufCache.put(host, ticketRandomBytes);
             }
-            ByteBuf ext = Unpooled.buffer();
+
+            // renegotiation info
             ext.writeBytes(unhexlify("ff01000100"));
+            // session ticket
             ext.writeBytes(unhexlify("0023"));
-            ext.writeInt(ticketBufCache.get(host).length);
+            ext.writeShort(ticketBufCache.get(host).length);
             ext.writeBytes(ticketBufCache.get(host));
+            // other hard code
             ext.writeBytes(unhexlify("000d001600140601060305010503040104030301030302010203"));
             ext.writeBytes(unhexlify("000500050100000000"));
+            // signed certificate timestamp
             ext.writeBytes(unhexlify("00120000"));
             ext.writeBytes(unhexlify("75500000"));
             ext.writeBytes(unhexlify("000b00020100"));
             ext.writeBytes(unhexlify("000a0006000400170018"));
-
-            tlsHeadBuf.writeInt(ext.readableBytes());
+            // end ext coding
+            // add ext to header
+            tlsHeadBuf.writeShort(ext.readableBytes());
             tlsHeadBuf.writeBytes(ext);
+
+            // Handshake Header
+            // Each handshake message starts with a type and a length.
+            // 01 - handshake message type 0x01 (client hello)
+            // 00 00 a1 - 0xA1 (161) bytes of client hello follows
             ByteBuf data = Unpooled.buffer();
-            data.writeBytes(unhexlify("0100"));
-            data.writeInt(tlsHeadBuf.readableBytes());
+            data.writeBytes(new byte[]{0x01});
+            data.writeBytes(new byte[]{0x00});
+            data.writeShort(tlsHeadBuf.readableBytes());
             data.writeBytes(tlsHeadBuf);
+
+            // Record Header
+            // 16 - type is 0x16 (handshake record)
+            // 03 01 - protocol version is 3.1 (also known as TLS 1.0)
+            // 00 a5 - 0xA5 (165) bytes of handshake message follows
             ByteBuf resultData = Unpooled.buffer();
-            resultData.writeBytes(unhexlify("160301"));
-            resultData.writeInt(data.readableBytes());
+            resultData.writeBytes(HANDSHAKE);
+            resultData.writeBytes(TLS_VERSION);
+            resultData.writeShort(data.readableBytes());
             resultData.writeBytes(data);
             return resultData;
         } else if (handshakeStatus == 1 && buf.readableBytes() == 0) {
             ByteBuf tlsHeadBuf = Unpooled.buffer();
-            tlsHeadBuf.writeBytes(unhexlify("14"));
+            // 14 03 03 00 01 01
+            // 14 - type is 0x14 (ChangeCipherSpec record)
+            // 03 03 - protocol version is "3,3" (TLS 1.2)
+            // 00 01 - 0x1 (1) bytes of change cipher spec follows
+            // 01 - the payload of this message is defined as the byte 0x01
+            tlsHeadBuf.writeBytes(CHANGE_CIPHER);
             tlsHeadBuf.writeBytes(TLS_VERSION);
-            tlsHeadBuf.writeBytes(unhexlify("000101")); //ChangeCipherSpec
-            tlsHeadBuf.writeBytes(unhexlify("16"));
+            tlsHeadBuf.writeBytes(unhexlify("000101"));
+            // client handshake finished
+            tlsHeadBuf.writeBytes(HANDSHAKE);
             tlsHeadBuf.writeBytes(TLS_VERSION);
-            tlsHeadBuf.writeBytes(unhexlify("0020")); //Finished
+            // 32 bytes
+            tlsHeadBuf.writeBytes( new byte[]{0x00, 0x20});
             byte[] randomBytes = new byte[22];
             SecureRandom.getInstanceStrong().nextBytes(randomBytes);
-            tlsHeadBuf.writeBytes(randomBytes); //Finished
+            tlsHeadBuf.writeBytes(randomBytes);
             byte[] result = hmacWithSha1("HmacSHA1", tlsHeadBuf.toString(), clientId);
             tlsHeadBuf.writeBytes(Arrays.copyOfRange(result, 0, 10));
             sendBuffer.clear();
