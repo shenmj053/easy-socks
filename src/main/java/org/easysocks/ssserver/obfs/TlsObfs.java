@@ -16,6 +16,10 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import lombok.extern.slf4j.Slf4j;
 import org.easysocks.ssserver.config.SsConfig;
+import org.easysocks.ssserver.obfs.entity.TlsClientHello;
+import org.easysocks.ssserver.obfs.entity.TlsExtServerName;
+import org.easysocks.ssserver.obfs.entity.TlsExtSessionTicket;
+
 
 /**
  * tls header encode and decode, reference site below:
@@ -33,6 +37,7 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
      *        (255)
      *    } HandshakeType;
      */
+    private static byte[] TLS_DATA_HEADER = {0x07, 0x03, 0x03};
     private static byte[] TLS_VERSION = {0x03, 0x03};
     private static byte[] TLS_AES_128_GCM_SHA256 = {0x13, 0x01};
     private static byte[] CHANGE_CIPHER = {0x14};
@@ -135,23 +140,24 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
     }
 
 
-    static private ByteBuf packAuthData(String clientId)
+    private void packAuthData(TlsClientHello tlsClientHello)
         throws NoSuchAlgorithmException, InvalidKeyException {
-        ByteBuf packAuthBuf = Unpooled.buffer();
         long epochSecond = LocalDateTime.now().toEpochSecond(ZoneOffset.UTC);
-        packAuthBuf.writeInt((int)epochSecond);
-        byte[] randomBytes = new byte[18];
+        tlsClientHello.setRandomUnixTime(epochSecond);
+
+        ByteBuf packAuthBuf = Unpooled.buffer();
+        byte[] randomBytes = new byte[28];
         SecureRandom.getInstanceStrong().nextBytes(randomBytes);
         packAuthBuf.writeBytes(randomBytes);
-
-        byte[] result = hmacWithSha1("HmacSHA1", packAuthBuf.array(), clientId);
-        packAuthBuf.writeBytes(Arrays.copyOfRange(result, 0, 10));
-        return packAuthBuf;
+        byte[] result = hmacWithSha1("HmacSHA1",Arrays.copyOf(randomBytes, 18), serverKey + clientId);
+        System.arraycopy(result, 0, randomBytes, 18, 10);
+        tlsClientHello.setRandomBytes(randomBytes);
     }
 
-    static private ByteBuf serverNameIndicate(String serverUrl) {
+    private ByteBuf serverNameIndicate(TlsClientHello tlsClientHello) {
+        String host = ssConfig.getMockServerName();
         ByteBuf snieBuf = Unpooled.buffer();
-        byte[] url = serverUrl.getBytes();
+        byte[] url = host.getBytes();
         snieBuf.writeByte(0x00);
         snieBuf.writeShort(url.length);
         snieBuf.writeBytes(url);
@@ -174,36 +180,7 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
         }
         if (handshakeStatus == 8) {
             // client application data
-            // 17 - type is 0x17 (application data)
-            // 03 03 - protocol version is "3,3" (TLS 1.2)
-            // 00 30 - 0x30 (48) bytes of application data follows
-            ByteBuf result = Unpooled.buffer();
-            while (buf.readableBytes() > 2048) {
-                byte[] randomBytes = new byte[2];
-                SecureRandom.getInstanceStrong().nextBytes(randomBytes);
-                ByteBuf tmp = Unpooled.buffer(2);
-                tmp.writeBytes(randomBytes);
-                int size = (int) Math.min(tmp.readUnsignedInt() % 4096 + 100, buf.readableBytes());
-                result.writeBytes(APPLICATION_DATA);
-                result.writeBytes(TLS_VERSION);
-                result.writeInt(size);
-                buf.readBytes(result, size);
-            }
-            if (buf.readableBytes() <= 0) {
-                // client application data header
-                result.writeBytes(APPLICATION_DATA);
-                result.writeBytes(TLS_VERSION);
-                result.writeShort(buf.readableBytes());
-                buf.readBytes(result, buf.readableBytes());
-            }
-            return result;
-        }
-
-        if (buf.readableBytes() > 0) {
-            sendBuffer.writeBytes(APPLICATION_DATA);
-            sendBuffer.writeBytes(TLS_VERSION);
-            sendBuffer.writeShort(buf.readableBytes());
-            sendBuffer.writeBytes(buf);
+            return obfsApplicationData(buf);
         }
 
         if (handshakeStatus == 0) {
@@ -212,48 +189,60 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
             // 16 - type is 0x16 (handshake record)
             // 03 01 - protocol version is 3.1 (also known as TLS 1.0)
             // 00 a5 - 0xA5 (165) bytes of handshake message follows
-            ByteBuf tlsHeadBuf = Unpooled.buffer();
-            // Client Version
-            tlsHeadBuf.writeBytes(TLS_VERSION);
-            // Client Random, 32 bytes
-            tlsHeadBuf.writeBytes(packAuthData(serverKey + clientId));
-            // Session ID length
-            // 32 bytes hardcode
-            tlsHeadBuf.writeBytes(unhexlify("20"));
-            // Session ID data
-            // clientId is 32 bytes
-            tlsHeadBuf.writeBytes(unhexlify(clientId));
-            // Cipher Suites 32 bytes
-            tlsHeadBuf.writeBytes(unhexlify("001cc02bc02fcca9cca8cc14cc13c00ac014c009c013009c0035002f000a"));
-            // Compression Methods
-            tlsHeadBuf.writeBytes(unhexlify("0100"));
+            TlsClientHello tlsClientHello = TlsClientHello
+                .builder()
+                .build();
+            packAuthData(tlsClientHello);
+
+            tlsClientHello.setSessionIdLen((short)32);
+            tlsClientHello.setSessionId(unhexlify(clientId));
+            tlsClientHello.setCipherSuitesLen(56);
+            tlsClientHello.setCipherSuites(
+                new short[]{
+                    0xc0, 0x2c, 0xc0, 0x30, 0x00, 0x9f, 0xcc, 0xa9, 0xcc, 0xa8, 0xcc, 0xaa, 0xc0, 0x2b, 0xc0, 0x2f,
+                    0x00, 0x9e, 0xc0, 0x24, 0xc0, 0x28, 0x00, 0x6b, 0xc0, 0x23, 0xc0, 0x27, 0x00, 0x67, 0xc0, 0x0a,
+                    0xc0, 0x14, 0x00, 0x39, 0xc0, 0x09, 0xc0, 0x13, 0x00, 0x33, 0x00, 0x9d, 0x00, 0x9c, 0x00, 0x3d,
+                    0x00, 0x3c, 0x00, 0x35, 0x00, 0x2f, 0x00, 0xff
+                }
+            );
+            tlsClientHello.setCompMethodsLen((short)1);
+            tlsClientHello.setCompMethods(new short[]{ 0 });
+
+            // ext begin coding
+            // session ticket
+            TlsExtSessionTicket tlsExtSessionTicket = new TlsExtSessionTicket();
+            String host = ssConfig.getMockServerName();
+            if (!ticketBufCache.containsKey(host)) {
+                int len = ((SecureRandom.getInstanceStrong().nextInt(65536) % 17) + 8) * 16;
+                byte[] ticketRandomBytes = new byte[len];
+                SecureRandom.getInstanceStrong().nextBytes(ticketRandomBytes);
+                ticketBufCache.put(host, ticketRandomBytes);
+            }
+            tlsExtSessionTicket.setSessionTicketExtLen(ticketBufCache.get(host).length);
+            tlsExtSessionTicket.setSessionTicket(ticketBufCache.get(host));
+
+            // Extension - Server Name Indicate
+            TlsExtServerName tlsExtServerName = new TlsExtServerName();
+
 
             // ext begin coding
             ByteBuf ext = Unpooled.buffer();
             // Extension - Server Name
-            String host = ssConfig.getMockServerName();
             ext.writeBytes(serverNameIndicate(host));
 
             // extended master secret
             ext.writeBytes(unhexlify("00170000"));
-
+            String host = ssConfig.getMockServerName();
             if (!ticketBufCache.containsKey(host)) {
-                ByteBuf ticketBuf = Unpooled.buffer();
-                byte[] randomBytes = new byte[2];
-                SecureRandom.getInstanceStrong().nextBytes(randomBytes);
-                ticketBuf.writeBytes(randomBytes);
-                long len = ((ticketBuf.readUnsignedInt() % 17) + 8) * 16;
-                byte[] ticketRandomBytes = new byte[(int) len];
+                int len = ((SecureRandom.getInstanceStrong().nextInt(65536) % 17) + 8) * 16;
+                byte[] ticketRandomBytes = new byte[len];
                 SecureRandom.getInstanceStrong().nextBytes(ticketRandomBytes);
                 ticketBufCache.put(host, ticketRandomBytes);
             }
 
             // renegotiation info
             ext.writeBytes(unhexlify("ff01000100"));
-            // session ticket
-            ext.writeBytes(unhexlify("0023"));
-            ext.writeShort(ticketBufCache.get(host).length);
-            ext.writeBytes(ticketBufCache.get(host));
+
             // other hard code
             ext.writeBytes(unhexlify("000d001600140601060305010503040104030301030302010203"));
             ext.writeBytes(unhexlify("000500050100000000"));
@@ -406,6 +395,48 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
         Arrays.fill(r, Byte.parseByte("E"));
         result.writeBytes(r);
         return result;
+    }
+
+    ByteBuf obfsApplicationData(ByteBuf buf) throws NoSuchAlgorithmException {
+        // client application data
+        // 17 - type is 0x17 (application data)
+        // 03 03 - protocol version is "3,3" (TLS 1.2)
+        // 00 30 - 0x30 (48) bytes of application data follows
+        ByteBuf result = Unpooled.buffer();
+        while (buf.readableBytes() > 2048) {
+            int size = Math.min(
+                SecureRandom.getInstanceStrong().nextInt(65536) % 4096 + 100,
+                buf.readableBytes()
+            );
+            result.writeBytes(TLS_DATA_HEADER);
+            result.writeInt(size);
+            result.writeBytes(buf, size);
+        }
+        if (buf.readableBytes() <= 0) {
+            // client application data header
+            result.writeBytes(TLS_DATA_HEADER);
+            result.writeShort(buf.readableBytes());
+            result.writeBytes(buf, buf.readableBytes());
+        }
+        return result;
+    }
+
+    ByteBuf deobfsApplicationData(ByteBuf buf) {
+        ByteBuf resultData = Unpooled.buffer();
+        while (buf.readableBytes() > 5) {
+            if (buf.readByte() != 0x17 || buf.readByte() != 0x03
+                || buf.readByte() != 0x03) {
+                log.error("server decode appdata error");
+                return Unpooled.buffer(0);
+            }
+            int size = buf.readUnsignedShort();
+            if (buf.readableBytes() < size) {
+                break;
+            }
+            resultData.writeBytes(buf, size);
+        }
+        return resultData;
+
     }
 
     public static void main(String[] args) {
