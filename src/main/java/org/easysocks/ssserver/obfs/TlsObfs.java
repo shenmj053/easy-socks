@@ -152,7 +152,11 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
         packAuthBuf.writeBytes(randomBytes);
         byte[] result = hmacWithSha1("HmacSHA1",Arrays.copyOf(randomBytes, 18), serverKey + clientId);
         System.arraycopy(result, 0, randomBytes, 18, 10);
-        tlsClientHello.setRandomBytes(randomBytes);
+        short[] randomBytesShort = new short[28];
+        for (int i = 0; i < randomBytes.length; i++) {
+            randomBytesShort[i] = randomBytes[i];
+        }
+        tlsClientHello.setRandomBytes(randomBytesShort);
     }
 
     private void serverNameIndicate(TlsExtServerName tlsExtServerName) {
@@ -185,7 +189,11 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
             TlsClientHello tlsClientHello = new TlsClientHello();
             packAuthData(tlsClientHello);
             tlsClientHello.setSessionIdLen((short)32);
-            tlsClientHello.setSessionId(unhexlify(clientId));
+            short[] sessionId = new short[32];
+            for (int i = 0; i < clientId.getBytes().length; i++) {
+                sessionId[i] = clientId.getBytes()[i];
+            }
+            tlsClientHello.setSessionId(sessionId);
             tlsClientHello.setCipherSuitesLen(56);
             tlsClientHello.setCipherSuites(
                 new short[]{
@@ -239,30 +247,6 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
             handshakeStatus = 1;
             return data;
         }
-//        else if (handshakeStatus == 1 && buf.readableBytes() == 0) {
-//            ByteBuf tlsHeadBuf = Unpooled.buffer();
-//            // client change cipher spec 14 03 03 00 01 01
-//            // 14 - type is 0x14 (ChangeCipherSpec record)
-//            // 03 03 - protocol version is "3,3" (TLS 1.2)
-//            // 00 01 - 0x1 (1) bytes of change cipher spec follows
-//            // 01 - the payload of this message is defined as the byte 0x01
-//            tlsHeadBuf.writeBytes(CHANGE_CIPHER);
-//            tlsHeadBuf.writeBytes(TLS_VERSION);
-//            tlsHeadBuf.writeBytes(unhexlify("000101"));
-//            // client handshake finished
-//            tlsHeadBuf.writeBytes(HANDSHAKE);
-//            tlsHeadBuf.writeBytes(TLS_VERSION);
-//            // 32 bytes
-//            tlsHeadBuf.writeBytes( new byte[]{0x00, 0x20});
-//            byte[] randomBytes = new byte[22];
-//            SecureRandom.getInstanceStrong().nextBytes(randomBytes);
-//            tlsHeadBuf.writeBytes(randomBytes);
-//            byte[] result = hmacWithSha1("HmacSHA1", tlsHeadBuf.array(), serverKey + clientId);
-//            tlsHeadBuf.writeBytes(Arrays.copyOfRange(result, 0, 10));
-//            sendBuffer.clear();
-//            handshakeStatus = 8;
-//            return tlsHeadBuf;
-//        }
         return Unpooled.buffer();
     }
 
@@ -284,6 +268,7 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
         if (handshakeStatus == 1) {
             return deobfsApplicationData(buf);
         } else if (handshakeStatus == 0) {
+            receiveBuffer.writeBytes(buf);
 
         }
         if ((handshakeStatus & 4) == 4) {
@@ -412,9 +397,12 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
     }
 
     public static void main(String[] args) {
-        ByteBuf b = serverNameIndicate("example.ulfheim.net");
-        byte[] r = new byte[b.readableBytes()];
-        b.readBytes(r);
-        System.out.println(hexlify(r));
+        TlsClientHello tlsClientHello = new TlsClientHello();
+        System.out.println(tlsClientHello);
+
+        ByteBuf b = TlsClientHello.encode(tlsClientHello);
+        TlsClientHello tlsClientHello2= TlsClientHello.decode(b);
+
+        System.out.println(tlsClientHello2);
     }
 }

@@ -1,12 +1,20 @@
 package org.easysocks.ssserver.obfs.entity;
 
+import com.google.common.io.BaseEncoding;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 
 @Data
+@Builder
+@AllArgsConstructor
+@NoArgsConstructor
 public class TlsClientHello {
+    public static int byte_length = 103;
     /**
      * java type is signed, so one big-ending byte need to stored as short,
      * other fields follow the same rule.
@@ -21,9 +29,9 @@ public class TlsClientHello {
     int handshakeVersion = 0x0303;
 
     long randomUnixTime;
-    byte[] randomBytes = new byte[28];
+    short[] randomBytes = new short[28];
     short sessionIdLen = 32;
-    byte[] sessionId = new byte[32];
+    short[] sessionId = new short[32];
     int cipherSuitesLen = 56;
     short[] cipherSuites = {
         0xc0, 0x2c, 0xc0, 0x30, 0x00, 0x9f, 0xcc, 0xa9, 0xcc, 0xa8, 0xcc, 0xaa, 0xc0, 0x2b, 0xc0, 0x2f,
@@ -62,5 +70,45 @@ public class TlsClientHello {
         bf.writeByte(content.getCompMethods()[0]);
         bf.writeShort(content.getExtLen());
         return bf;
+    }
+
+    public static TlsClientHello decode(ByteBuf buf) {
+        return TlsClientHello
+            .builder()
+            .contentType(buf.readUnsignedByte())
+            .version(buf.readUnsignedShort())
+            .len(buf.readUnsignedShort())
+            .handshakeType(buf.readUnsignedByte())
+            .handshakeLen1(buf.readUnsignedByte())
+            .handshakeLen2(buf.readUnsignedShort())
+            .handshakeVersion(buf.readUnsignedShort())
+            .randomUnixTime(buf.readUnsignedInt())
+            .randomBytes(readBytes(buf, 28))
+            .sessionIdLen(buf.readUnsignedByte())
+            .sessionId(readBytes(buf, 32))
+            .cipherSuitesLen(buf.readUnsignedShort())
+            .cipherSuites(readBytes(buf, 56))
+            .compMethodsLen(buf.readUnsignedByte())
+            .compMethods(readBytes(buf, 1))
+            .extLen(buf.readUnsignedShort())
+            .build();
+    }
+
+    public static short[] readBytes(ByteBuf buf, int len) {
+        short[] result = new short[len];
+        for(int i = 0; i < len; i++) {
+            result[i] = buf.readUnsignedByte();
+        }
+        return result;
+    }
+
+    public static String decodeBytesAsHex(ByteBuf byteBuf) {
+        if (byteBuf.readableBytes() > 0) {
+            byte[] bytes = new byte[byteBuf.readableBytes()];
+            byteBuf.readBytes(bytes);
+            return BaseEncoding.base16().encode(bytes);
+        } else {
+            return "";
+        }
     }
 }
