@@ -2,12 +2,10 @@ package org.easysocks.ssserver.obfs.entity;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import lombok.Builder;
 import lombok.Data;
 
 
 @Data
-@Builder
 public class TlsClientHello {
     /**
      * java type is signed, so one big-ending byte need to stored as short,

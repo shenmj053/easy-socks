@@ -17,6 +17,7 @@ import javax.crypto.spec.SecretKeySpec;
 import lombok.extern.slf4j.Slf4j;
 import org.easysocks.ssserver.config.SsConfig;
 import org.easysocks.ssserver.obfs.entity.TlsClientHello;
+import org.easysocks.ssserver.obfs.entity.TlsExtOthers;
 import org.easysocks.ssserver.obfs.entity.TlsExtServerName;
 import org.easysocks.ssserver.obfs.entity.TlsExtSessionTicket;
 
@@ -154,19 +155,12 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
         tlsClientHello.setRandomBytes(randomBytes);
     }
 
-    private ByteBuf serverNameIndicate(TlsClientHello tlsClientHello) {
-        String host = ssConfig.getMockServerName();
-        ByteBuf snieBuf = Unpooled.buffer();
-        byte[] url = host.getBytes();
-        snieBuf.writeByte(0x00);
-        snieBuf.writeShort(url.length);
-        snieBuf.writeBytes(url);
-        ByteBuf result = Unpooled.buffer();
-        result.writeBytes(new byte[]{0x00, 0x00});
-        result.writeShort(snieBuf.readableBytes() + 2);
-        result.writeShort(snieBuf.readableBytes());
-        result.writeBytes(snieBuf);
-        return result;
+    private void serverNameIndicate(TlsExtServerName tlsExtServerName) {
+        byte[] host = ssConfig.getMockServerName().getBytes();
+        tlsExtServerName.setExtLen(host.length + 3 + 2);
+        tlsExtServerName.setServerNameListLen(host.length + 3);
+        tlsExtServerName.setServerNameLen(host.length);
+        tlsExtServerName.setServerName(host);
     }
 
     private ByteBuf clientEncode(ByteBuf buf) throws NoSuchAlgorithmException, InvalidKeyException {
@@ -178,22 +172,18 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
             buf.retain();
             return buf;
         }
-        if (handshakeStatus == 8) {
+        if (handshakeStatus == 1) {
             // client application data
             return obfsApplicationData(buf);
         }
 
         if (handshakeStatus == 0) {
-            handshakeStatus = 1;
             // client hello
             // 16 - type is 0x16 (handshake record)
             // 03 01 - protocol version is 3.1 (also known as TLS 1.0)
             // 00 a5 - 0xA5 (165) bytes of handshake message follows
-            TlsClientHello tlsClientHello = TlsClientHello
-                .builder()
-                .build();
+            TlsClientHello tlsClientHello = new TlsClientHello();
             packAuthData(tlsClientHello);
-
             tlsClientHello.setSessionIdLen((short)32);
             tlsClientHello.setSessionId(unhexlify(clientId));
             tlsClientHello.setCipherSuitesLen(56);
@@ -220,86 +210,59 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
             }
             tlsExtSessionTicket.setSessionTicketExtLen(ticketBufCache.get(host).length);
             tlsExtSessionTicket.setSessionTicket(ticketBufCache.get(host));
+            ByteBuf tlsExtSessionTicketByteBuf = TlsExtSessionTicket.encode(tlsExtSessionTicket);
 
             // Extension - Server Name Indicate
             TlsExtServerName tlsExtServerName = new TlsExtServerName();
+            serverNameIndicate(tlsExtServerName);
+            ByteBuf tlsExtServerNameByteBuf = TlsExtServerName.encode(tlsExtServerName);
 
+            /* Other Extensions */
+            TlsExtOthers tlsExtOthers = new TlsExtOthers();
+            ByteBuf tlsExtOthersByteBuf = TlsExtOthers.encode(tlsExtOthers);
 
-            // ext begin coding
-            ByteBuf ext = Unpooled.buffer();
-            // Extension - Server Name
-            ext.writeBytes(serverNameIndicate(host));
+            // update len field
+            ByteBuf tlsClientHelloByteBuf = TlsClientHello.encode(tlsClientHello);
+            tlsClientHello.setLen(tlsClientHelloByteBuf.readableBytes() - 5);
+            tlsClientHello.setHandshakeLen2(tlsClientHelloByteBuf.readableBytes() - 9);
+            tlsClientHello.setExtLen(
+                tlsExtSessionTicketByteBuf.readableBytes()
+                + tlsExtServerNameByteBuf.readableBytes()
+                + tlsExtOthersByteBuf.readableBytes()
+            );
 
-            // extended master secret
-            ext.writeBytes(unhexlify("00170000"));
-            String host = ssConfig.getMockServerName();
-            if (!ticketBufCache.containsKey(host)) {
-                int len = ((SecureRandom.getInstanceStrong().nextInt(65536) % 17) + 8) * 16;
-                byte[] ticketRandomBytes = new byte[len];
-                SecureRandom.getInstanceStrong().nextBytes(ticketRandomBytes);
-                ticketBufCache.put(host, ticketRandomBytes);
-            }
-
-            // renegotiation info
-            ext.writeBytes(unhexlify("ff01000100"));
-
-            // other hard code
-            ext.writeBytes(unhexlify("000d001600140601060305010503040104030301030302010203"));
-            ext.writeBytes(unhexlify("000500050100000000"));
-            // signed certificate timestamp
-            ext.writeBytes(unhexlify("00120000"));
-            ext.writeBytes(unhexlify("75500000"));
-            ext.writeBytes(unhexlify("000b00020100"));
-            ext.writeBytes(unhexlify("000a0006000400170018"));
-            // end ext coding
-            // add ext to header
-            tlsHeadBuf.writeShort(ext.readableBytes());
-            tlsHeadBuf.writeBytes(ext);
-
-            // Handshake Header
-            // Each handshake message starts with a type and a length.
-            // 01 - handshake message type 0x01 (client hello)
-            // 00 00 a1 - 0xA1 (161) bytes of client hello follows
             ByteBuf data = Unpooled.buffer();
-            data.writeBytes(new byte[]{0x01});
-            data.writeBytes(new byte[]{0x00});
-            data.writeShort(tlsHeadBuf.readableBytes());
-            data.writeBytes(tlsHeadBuf);
-
-            // Record Header
-            // 16 - type is 0x16 (handshake record)
-            // 03 01 - protocol version is 3.1 (also known as TLS 1.0)
-            // 00 a5 - 0xA5 (165) bytes of handshake message follows
-            ByteBuf resultData = Unpooled.buffer();
-            resultData.writeBytes(HANDSHAKE);
-            resultData.writeBytes(TLS_VERSION);
-            resultData.writeShort(data.readableBytes());
-            resultData.writeBytes(data);
-            return resultData;
-        } else if (handshakeStatus == 1 && buf.readableBytes() == 0) {
-            ByteBuf tlsHeadBuf = Unpooled.buffer();
-            // client change cipher spec 14 03 03 00 01 01
-            // 14 - type is 0x14 (ChangeCipherSpec record)
-            // 03 03 - protocol version is "3,3" (TLS 1.2)
-            // 00 01 - 0x1 (1) bytes of change cipher spec follows
-            // 01 - the payload of this message is defined as the byte 0x01
-            tlsHeadBuf.writeBytes(CHANGE_CIPHER);
-            tlsHeadBuf.writeBytes(TLS_VERSION);
-            tlsHeadBuf.writeBytes(unhexlify("000101"));
-            // client handshake finished
-            tlsHeadBuf.writeBytes(HANDSHAKE);
-            tlsHeadBuf.writeBytes(TLS_VERSION);
-            // 32 bytes
-            tlsHeadBuf.writeBytes( new byte[]{0x00, 0x20});
-            byte[] randomBytes = new byte[22];
-            SecureRandom.getInstanceStrong().nextBytes(randomBytes);
-            tlsHeadBuf.writeBytes(randomBytes);
-            byte[] result = hmacWithSha1("HmacSHA1", tlsHeadBuf.array(), serverKey + clientId);
-            tlsHeadBuf.writeBytes(Arrays.copyOfRange(result, 0, 10));
-            sendBuffer.clear();
-            handshakeStatus = 8;
-            return tlsHeadBuf;
+            data.writeBytes(TlsClientHello.encode(tlsClientHello));
+            data.writeBytes(tlsExtSessionTicketByteBuf);
+            data.writeBytes(tlsExtServerNameByteBuf);
+            data.writeBytes(tlsExtOthersByteBuf);
+            handshakeStatus = 1;
+            return data;
         }
+//        else if (handshakeStatus == 1 && buf.readableBytes() == 0) {
+//            ByteBuf tlsHeadBuf = Unpooled.buffer();
+//            // client change cipher spec 14 03 03 00 01 01
+//            // 14 - type is 0x14 (ChangeCipherSpec record)
+//            // 03 03 - protocol version is "3,3" (TLS 1.2)
+//            // 00 01 - 0x1 (1) bytes of change cipher spec follows
+//            // 01 - the payload of this message is defined as the byte 0x01
+//            tlsHeadBuf.writeBytes(CHANGE_CIPHER);
+//            tlsHeadBuf.writeBytes(TLS_VERSION);
+//            tlsHeadBuf.writeBytes(unhexlify("000101"));
+//            // client handshake finished
+//            tlsHeadBuf.writeBytes(HANDSHAKE);
+//            tlsHeadBuf.writeBytes(TLS_VERSION);
+//            // 32 bytes
+//            tlsHeadBuf.writeBytes( new byte[]{0x00, 0x20});
+//            byte[] randomBytes = new byte[22];
+//            SecureRandom.getInstanceStrong().nextBytes(randomBytes);
+//            tlsHeadBuf.writeBytes(randomBytes);
+//            byte[] result = hmacWithSha1("HmacSHA1", tlsHeadBuf.array(), serverKey + clientId);
+//            tlsHeadBuf.writeBytes(Arrays.copyOfRange(result, 0, 10));
+//            sendBuffer.clear();
+//            handshakeStatus = 8;
+//            return tlsHeadBuf;
+//        }
         return Unpooled.buffer();
     }
 
@@ -314,6 +277,15 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
     }
 
     private ByteBuf serverDecode(ByteBuf buf) throws NoSuchAlgorithmException, InvalidKeyException {
+        if (handshakeStatus == -1) {
+            buf.retain();
+            return buf;
+        }
+        if (handshakeStatus == 1) {
+            return deobfsApplicationData(buf);
+        } else if (handshakeStatus == 0) {
+
+        }
         if ((handshakeStatus & 4) == 4) {
             ByteBuf resultData = Unpooled.buffer();
             receiveBuffer.writeBytes(buf);

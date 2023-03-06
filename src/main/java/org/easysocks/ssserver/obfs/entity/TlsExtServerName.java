@@ -1,16 +1,29 @@
 package org.easysocks.ssserver.obfs.entity;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import lombok.Data;
 
 @Data
 public class TlsExtServerName {
-    int extType;
+    int extType = 0x0000;
     int extLen;
     int serverNameListLen;
-    short serverNameType;
+    short serverNameType = 0x00;
     int serverNameLen;
     /**
      * serverNameLen
      */
-    short[] serverName;
+    byte[] serverName;
+
+    public static ByteBuf encode(TlsExtServerName content) {
+        ByteBuf bf = Unpooled.buffer();
+        bf.writeShort(content.getExtType());
+        bf.writeShort(content.getExtLen());
+        bf.writeShort(content.getServerNameListLen());
+        bf.writeByte(content.getServerNameType());
+        bf.writeShort(content.getServerNameLen());
+        bf.writeBytes(content.getServerName());
+        return bf;
+    }
 }
