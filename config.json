@@ -1,6 +1,6 @@
 {
-  "server_address":"0.0.0.0",
-  "server_port":5678,
+  "server_address":"162.55.174.158",
+  "server_port":11800,
   "client_port":1234,
   "password":"super secret",
   "method":"chacha20-ietf-poly1305"
