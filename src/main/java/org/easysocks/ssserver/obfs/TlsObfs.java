@@ -16,10 +16,13 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import lombok.extern.slf4j.Slf4j;
 import org.easysocks.ssserver.config.SsConfig;
+import org.easysocks.ssserver.obfs.entity.TlsChangeCipherSpec;
 import org.easysocks.ssserver.obfs.entity.TlsClientHello;
+import org.easysocks.ssserver.obfs.entity.TlsEncryptedHandshake;
 import org.easysocks.ssserver.obfs.entity.TlsExtOthers;
 import org.easysocks.ssserver.obfs.entity.TlsExtServerName;
 import org.easysocks.ssserver.obfs.entity.TlsExtSessionTicket;
+import org.easysocks.ssserver.obfs.entity.TlsServerHello;
 
 
 /**
@@ -141,11 +144,8 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
     }
 
 
-    private void packAuthData(TlsClientHello tlsClientHello)
+    private short[] randomBytes()
         throws NoSuchAlgorithmException, InvalidKeyException {
-        long epochSecond = LocalDateTime.now().toEpochSecond(ZoneOffset.UTC);
-        tlsClientHello.setRandomUnixTime(epochSecond);
-
         ByteBuf packAuthBuf = Unpooled.buffer();
         byte[] randomBytes = new byte[28];
         SecureRandom.getInstanceStrong().nextBytes(randomBytes);
@@ -156,7 +156,22 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
         for (int i = 0; i < randomBytes.length; i++) {
             randomBytesShort[i] = randomBytes[i];
         }
-        tlsClientHello.setRandomBytes(randomBytesShort);
+        return randomBytesShort;
+    }
+
+    private short[] generateEncryptedData(int len, byte[] data)
+        throws NoSuchAlgorithmException, InvalidKeyException {
+        ByteBuf packAuthBuf = Unpooled.buffer();
+        byte[] randomBytes = new byte[len];
+        SecureRandom.getInstanceStrong().nextBytes(randomBytes);
+        packAuthBuf.writeBytes(randomBytes);
+        byte[] result = hmacWithSha1("HmacSHA1", data, serverKey + clientId);
+        System.arraycopy(result, 0, randomBytes, len-10, 10);
+        short[] randomBytesShort = new short[len];
+        for (int i = 0; i < randomBytes.length; i++) {
+            randomBytesShort[i] = randomBytes[i];
+        }
+        return randomBytesShort;
     }
 
     private void serverNameIndicate(TlsExtServerName tlsExtServerName) {
@@ -183,11 +198,9 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
 
         if (handshakeStatus == 0) {
             // client hello
-            // 16 - type is 0x16 (handshake record)
-            // 03 01 - protocol version is 3.1 (also known as TLS 1.0)
-            // 00 a5 - 0xA5 (165) bytes of handshake message follows
             TlsClientHello tlsClientHello = new TlsClientHello();
-            packAuthData(tlsClientHello);
+            tlsClientHello.setRandomUnixTime(LocalDateTime.now().toEpochSecond(ZoneOffset.UTC));
+            tlsClientHello.setRandomBytes(randomBytes());
             tlsClientHello.setSessionIdLen((short)32);
             short[] sessionId = new short[32];
             for (int i = 0; i < clientId.getBytes().length; i++) {
@@ -255,9 +268,49 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
         return buf;
     }
 
-    private ByteBuf serverEncode(ByteBuf buf) {
-        // TODO
-        return buf;
+    private ByteBuf serverEncode(ByteBuf buf) throws NoSuchAlgorithmException, InvalidKeyException {
+        if (hasSentHeader) {
+            buf.retain();
+            return buf;
+        }
+        if (handshakeStatus == -1) {
+            buf.retain();
+            return buf;
+        }
+        if (handshakeStatus == 1) {
+            // server application data
+            return obfsApplicationData(buf);
+        } else if (handshakeStatus == 0) {
+            // server hello
+            TlsServerHello tlsServerHello = new TlsServerHello();
+            tlsServerHello.setRandomUnixTime(LocalDateTime.now().toEpochSecond(ZoneOffset.UTC));
+            tlsServerHello.setRandomBytes(randomBytes());
+            tlsServerHello.setSessionIdLen((short)32);
+            short[] sessionId = new short[32];
+            for (int i = 0; i < clientId.getBytes().length; i++) {
+                sessionId[i] = clientId.getBytes()[i];
+            }
+            tlsServerHello.setSessionId(sessionId);
+
+            // change cipher spec
+            TlsChangeCipherSpec tlsChangeCipherSpec = new TlsChangeCipherSpec();
+
+            // encrypted handshake
+            TlsEncryptedHandshake tlsEncryptedHandshake = new TlsEncryptedHandshake();
+
+            ByteBuf data = Unpooled.buffer();
+            data.writeBytes(TlsServerHello.encode(tlsServerHello));
+            data.writeBytes(TlsChangeCipherSpec.encode(tlsChangeCipherSpec));
+            data.writeBytes(TlsEncryptedHandshake.encode(tlsEncryptedHandshake));
+            byte[] dataForEncrypt = new byte[data.readableBytes()];
+            data.copy().readBytes(dataForEncrypt);
+            short[] encryptedData = generateEncryptedData(64, dataForEncrypt);
+            for (short b: encryptedData) {
+                data.writeByte(b);
+            }
+            return data;
+        }
+        return Unpooled.buffer();
     }
 
     private ByteBuf serverDecode(ByteBuf buf) throws NoSuchAlgorithmException, InvalidKeyException {
