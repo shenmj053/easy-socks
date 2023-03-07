@@ -179,7 +179,6 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
         tlsExtServerName.setExtLen(host.length + 3 + 2);
         tlsExtServerName.setServerNameListLen(host.length + 3);
         tlsExtServerName.setServerNameLen(host.length);
-        tlsExtServerName.setServerName(host);
     }
 
     private ByteBuf clientEncode(ByteBuf buf) throws NoSuchAlgorithmException, InvalidKeyException {
@@ -230,13 +229,14 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
                 ticketBufCache.put(host, ticketRandomBytes);
             }
             tlsExtSessionTicket.setSessionTicketExtLen(ticketBufCache.get(host).length);
-            tlsExtSessionTicket.setSessionTicket(ticketBufCache.get(host));
             ByteBuf tlsExtSessionTicketByteBuf = TlsExtSessionTicket.encode(tlsExtSessionTicket);
+            tlsExtSessionTicketByteBuf.writeBytes(ticketBufCache.get(host));
 
             // Extension - Server Name Indicate
             TlsExtServerName tlsExtServerName = new TlsExtServerName();
             serverNameIndicate(tlsExtServerName);
             ByteBuf tlsExtServerNameByteBuf = TlsExtServerName.encode(tlsExtServerName);
+            tlsExtServerNameByteBuf.writeBytes(ssConfig.getMockServerName().getBytes());
 
             /* Other Extensions */
             TlsExtOthers tlsExtOthers = new TlsExtOthers();
@@ -297,6 +297,7 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
 
             // encrypted handshake
             TlsEncryptedHandshake tlsEncryptedHandshake = new TlsEncryptedHandshake();
+            tlsEncryptedHandshake.setLen(64);
 
             ByteBuf data = Unpooled.buffer();
             data.writeBytes(TlsServerHello.encode(tlsServerHello));
@@ -321,7 +322,36 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
         if (handshakeStatus == 1) {
             return deobfsApplicationData(buf);
         } else if (handshakeStatus == 0) {
+            receiveBuffer.resetReaderIndex();
             receiveBuffer.writeBytes(buf);
+            int readableBytes = receiveBuffer.readableBytes();
+            readableBytes -= TlsClientHello.byteLength;
+            if (readableBytes <= 0) {
+                return Unpooled.buffer();
+            }
+            TlsClientHello tlsClientHello = TlsClientHello.decode(receiveBuffer);
+            if (tlsClientHello.getContentType() != 0x16) {
+                log.error("Error decode tlsClientHello header obfs.");
+                return Unpooled.buffer();
+            }
+            readableBytes -= TlsExtSessionTicket.byteLength;
+            if (readableBytes <= 0) {
+                return Unpooled.buffer();
+            }
+            TlsExtSessionTicket tlsExtSessionTicket = TlsExtSessionTicket.decode(receiveBuffer);
+            if (tlsExtSessionTicket.getSessionTicketType() != 0x0023) {
+                log.error("Error decode tlsExtSessionTicket header obfs.");
+                return Unpooled.buffer();
+            }
+            int ticketLen = tlsExtSessionTicket.getSessionTicketExtLen();
+            if (readableBytes < ticketLen) {
+                return Unpooled.buffer();
+            }
+            clireceiveBuffer.readBytes(ticketLen);
+
+
+
+
 
         }
         if ((handshakeStatus & 4) == 4) {

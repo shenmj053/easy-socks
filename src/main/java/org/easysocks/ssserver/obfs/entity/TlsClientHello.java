@@ -14,7 +14,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @NoArgsConstructor
 public class TlsClientHello {
-    public static int byte_length = 103;
+    public static int byteLength = 138;
     /**
      * java type is signed, so one big-ending byte need to stored as short,
      * other fields follow the same rule.

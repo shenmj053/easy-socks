@@ -11,10 +11,7 @@ public class TlsExtServerName {
     int serverNameListLen;
     short serverNameType = 0x00;
     int serverNameLen;
-    /**
-     * serverNameLen
-     */
-    byte[] serverName;
+//    byte[] serverName;
 
     public static ByteBuf encode(TlsExtServerName content) {
         ByteBuf bf = Unpooled.buffer();
@@ -23,7 +20,6 @@ public class TlsExtServerName {
         bf.writeShort(content.getServerNameListLen());
         bf.writeByte(content.getServerNameType());
         bf.writeShort(content.getServerNameLen());
-        bf.writeBytes(content.getServerName());
         return bf;
     }
 }

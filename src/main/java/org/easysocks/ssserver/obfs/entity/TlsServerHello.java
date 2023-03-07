@@ -6,6 +6,7 @@ import lombok.Data;
 
 @Data
 public class TlsServerHello {
+    public static int byteLength = 95;
     short contentType = 0x16;
     int version = 0x0303;
     int len = 92;
