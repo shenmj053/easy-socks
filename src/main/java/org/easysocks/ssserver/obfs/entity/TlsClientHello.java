@@ -29,9 +29,9 @@ public class TlsClientHello {
     int handshakeVersion = 0x0303;
 
     long randomUnixTime;
-    short[] randomBytes = new short[28];
+    byte[] randomBytes = new byte[28];
     short sessionIdLen = 32;
-    short[] sessionId = new short[32];
+    byte[] sessionId = new byte[32];
     int cipherSuitesLen = 56;
     short[] cipherSuites = {
         0xc0, 0x2c, 0xc0, 0x30, 0x00, 0x9f, 0xcc, 0xa9, 0xcc, 0xa8, 0xcc, 0xaa, 0xc0, 0x2b, 0xc0, 0x2f,
@@ -40,7 +40,7 @@ public class TlsClientHello {
         0x00, 0x3c, 0x00, 0x35, 0x00, 0x2f, 0x00, 0xff
     };
     short compMethodsLen = 1;
-    short[] compMethods = { 0 };
+    byte[] compMethods = { 0 };
     int extLen;
 
     public static ByteBuf encode(TlsClientHello content) {
@@ -87,17 +87,25 @@ public class TlsClientHello {
             .sessionIdLen(buf.readUnsignedByte())
             .sessionId(readBytes(buf, 32))
             .cipherSuitesLen(buf.readUnsignedShort())
-            .cipherSuites(readBytes(buf, 56))
+            .cipherSuites(readUnsignedBytes(buf, 56))
             .compMethodsLen(buf.readUnsignedByte())
             .compMethods(readBytes(buf, 1))
             .extLen(buf.readUnsignedShort())
             .build();
     }
 
-    public static short[] readBytes(ByteBuf buf, int len) {
+    public static short[] readUnsignedBytes(ByteBuf buf, int len) {
         short[] result = new short[len];
         for(int i = 0; i < len; i++) {
             result[i] = buf.readUnsignedByte();
+        }
+        return result;
+    }
+
+    public static byte[] readBytes(ByteBuf buf, int len) {
+        byte[] result = new byte[len];
+        for(int i = 0; i < len; i++) {
+            result[i] = buf.readByte();
         }
         return result;
     }

@@ -5,5 +5,6 @@
   "password":"supersecret",
   "method":"aes-256-gcm",
   "mock_server_name": "www.bing.com",
-  "mock_server_address": "202.89.233.100"
+  "mock_server_address": "202.89.233.100",
+  "server_key": "supersecret"
 }

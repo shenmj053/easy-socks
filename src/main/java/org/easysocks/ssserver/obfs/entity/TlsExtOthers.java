@@ -6,6 +6,8 @@ import lombok.Data;
 
 @Data
 public class TlsExtOthers {
+    public static int byteLength = 66;
+
     int ecPointFormatsExtType = 0x000b;
     int ecPointFormatsExtLen = 4;
     short ecPointFormatsLen = 3;
