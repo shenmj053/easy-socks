@@ -21,6 +21,7 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import lombok.extern.slf4j.Slf4j;
 import org.easysocks.ssserver.config.SsConfig;
+import org.easysocks.ssserver.obfs.entity.HandshakeFinish;
 import org.easysocks.ssserver.obfs.entity.TlsChangeCipherSpec;
 import org.easysocks.ssserver.obfs.entity.TlsClientHello;
 import org.easysocks.ssserver.obfs.entity.TlsEncryptedHandshake;
@@ -238,6 +239,10 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
             return obfsApplicationData(buf);
         }
 
+        if (buf.readableBytes() > 0) {
+            sendBuffer.writeBytes(obfsApplicationData(buf));
+        }
+
         if (tlsHandshakeState == TlsHandshakeState.NOT_STARTED) {
             // client hello
             TlsClientHello tlsClientHello = new TlsClientHello();
@@ -295,8 +300,22 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
             data.writeBytes(tlsExtOthersByteBuf);
             tlsHandshakeState = TlsHandshakeState.CLIENT_HELLO;
             return data;
+        } else if (tlsHandshakeState == TlsHandshakeState.CLIENT_HELLO) {
+            ByteBuf data = Unpooled.buffer();
+            TlsChangeCipherSpec tlsChangeCipherSpec = new TlsChangeCipherSpec();
+            data.writeBytes(TlsChangeCipherSpec.encode(tlsChangeCipherSpec));
+
+            HandshakeFinish handshakeFinish = new HandshakeFinish();
+            byte[] randomBytes = generateRandomBytes();
+            handshakeFinish.setLen(randomBytes.length);
+            data.writeBytes(HandshakeFinish.encode(handshakeFinish));
+            data.writeBytes(randomBytes);
+
+            data.writeBytes(sendBuffer);
+            tlsHandshakeState = TlsHandshakeState.CLIENT_HELLO_CHANGE_CIPHER_SPEC_FINISH;
+            return data;
         }
-        return Unpooled.buffer();
+        return Unpooled.buffer(0);
     }
 
     private ByteBuf clientDecode(ByteBuf buf) {
