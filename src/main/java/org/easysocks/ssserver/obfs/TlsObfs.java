@@ -74,7 +74,22 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
 
     private Map<String, byte[]> ticketBufCache;
 
-    private TlsHandshakeState tlsHandshakeState;
+    private ClientHandshakeState clientHandshakeState;
+    private ServerHandshakeState serverHandshakeState;
+
+    enum ClientHandshakeState {
+        NOT_STARTED,
+        CLIENT_HELLO_SENT,
+        SERVER_HELLO_RECEIVED,
+        CLIENT_FINISH_SENT;
+    }
+
+    enum ServerHandshakeState {
+        NOT_STARTED,
+        CLIENT_HELLO_RECEIVED,
+        SERVER_HELLO_CENT,
+        CLIENT_FINISH_RECEIVED;
+    }
 
     public TlsObfs(SsConfig ssConfig, boolean ssClient) {
         this.ssConfig = ssConfig;
@@ -234,7 +249,7 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
     }
 
     private ByteBuf clientEncode(ByteBuf buf) throws NoSuchAlgorithmException, InvalidKeyException {
-        if (tlsHandshakeState == TlsHandshakeState.CLIENT_HELLO_CHANGE_CIPHER_SPEC_FINISH) {
+        if (clientHandshakeState == ClientHandshakeState.CLIENT_FINISH_SENT) {
             // client application data
             return obfsApplicationData(buf);
         }
@@ -243,7 +258,7 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
             sendBuffer.writeBytes(obfsApplicationData(buf));
         }
 
-        if (tlsHandshakeState == TlsHandshakeState.NOT_STARTED) {
+        if (clientHandshakeState == ClientHandshakeState.NOT_STARTED) {
             // client hello
             TlsClientHello tlsClientHello = new TlsClientHello();
             tlsClientHello.setRandomUnixTime(LocalDateTime.now().toEpochSecond(ZoneOffset.UTC));
@@ -298,21 +313,21 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
             data.writeBytes(tlsExtSessionTicketByteBuf);
             data.writeBytes(tlsExtServerNameByteBuf);
             data.writeBytes(tlsExtOthersByteBuf);
-            tlsHandshakeState = TlsHandshakeState.CLIENT_HELLO;
+            clientHandshakeState = ClientHandshakeState.CLIENT_HELLO_SENT;
             return data;
-        } else if (tlsHandshakeState == TlsHandshakeState.CLIENT_HELLO) {
+        } else if (clientHandshakeState == ClientHandshakeState.CLIENT_HELLO_SENT) {
             ByteBuf data = Unpooled.buffer();
             TlsChangeCipherSpec tlsChangeCipherSpec = new TlsChangeCipherSpec();
             data.writeBytes(TlsChangeCipherSpec.encode(tlsChangeCipherSpec));
 
-            HandshakeFinish handshakeFinish = new HandshakeFinish();
+            TlsEncryptedHandshake tlsEncryptedHandshake = new TlsEncryptedHandshake();
             byte[] randomBytes = generateRandomBytes();
-            handshakeFinish.setLen(randomBytes.length);
-            data.writeBytes(HandshakeFinish.encode(handshakeFinish));
+            tlsEncryptedHandshake.setLen(randomBytes.length);
+            data.writeBytes(TlsEncryptedHandshake.encode(tlsEncryptedHandshake));
             data.writeBytes(randomBytes);
 
             data.writeBytes(sendBuffer);
-            tlsHandshakeState = TlsHandshakeState.CLIENT_HELLO_CHANGE_CIPHER_SPEC_FINISH;
+            clientHandshakeState = ClientHandshakeState.CLIENT_FINISH_SENT;
             return data;
         }
         return Unpooled.buffer(0);
@@ -324,179 +339,143 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
     }
 
     private ByteBuf serverEncode(ByteBuf buf) throws NoSuchAlgorithmException, InvalidKeyException {
-        if (hasSentHeader) {
-            buf.retain();
-            return buf;
-        }
-        if (handshakeStatus == -1) {
-            buf.retain();
-            return buf;
-        }
-        if (handshakeStatus == 1) {
+        if (serverHandshakeState == ServerHandshakeState.CLIENT_FINISH_RECEIVED) {
             // server application data
             return obfsApplicationData(buf);
-        } else if (handshakeStatus == 0) {
+        }
+
+        if (buf.readableBytes() > 0) {
+            sendBuffer.writeBytes(obfsApplicationData(buf));
+        }
+
+        if (serverHandshakeState == ServerHandshakeState.CLIENT_HELLO_RECEIVED) {
             // server hello
             TlsServerHello tlsServerHello = new TlsServerHello();
             tlsServerHello.setRandomUnixTime(LocalDateTime.now().toEpochSecond(ZoneOffset.UTC));
-            tlsServerHello.setRandomBytes(randomBytes());
-            tlsServerHello.setSessionIdLen((short)32);
-            short[] sessionId = new short[32];
-            for (int i = 0; i < clientId.getBytes().length; i++) {
-                sessionId[i] = clientId.getBytes()[i];
-            }
-            tlsServerHello.setSessionId(sessionId);
+            tlsServerHello.setRandomBytes(generateRandomBytes());
+            tlsServerHello.setSessionIdLen((short) 32);
+            tlsServerHello.setSessionId(clientId);
 
             // change cipher spec
             TlsChangeCipherSpec tlsChangeCipherSpec = new TlsChangeCipherSpec();
 
             // encrypted handshake
             TlsEncryptedHandshake tlsEncryptedHandshake = new TlsEncryptedHandshake();
-            tlsEncryptedHandshake.setLen(64);
 
             ByteBuf data = Unpooled.buffer();
             data.writeBytes(TlsServerHello.encode(tlsServerHello));
             data.writeBytes(TlsChangeCipherSpec.encode(tlsChangeCipherSpec));
             data.writeBytes(TlsEncryptedHandshake.encode(tlsEncryptedHandshake));
+
             byte[] dataForEncrypt = new byte[data.readableBytes()];
             data.copy().readBytes(dataForEncrypt);
-            short[] encryptedData = generateEncryptedData(64, dataForEncrypt);
-            for (short b: encryptedData) {
-                data.writeByte(b);
-            }
+            byte[] key = Bytes.concat(serverKey, clientId);
+            byte[] result = hmacWithSha1("HmacSHA1", dataForEncrypt, key);
+            data.writeBytes(result, 0, tlsEncryptedHandshake.getLen());
+
+            serverHandshakeState = ServerHandshakeState.SERVER_HELLO_CENT;
             return data;
         }
-        return Unpooled.buffer();
+        return Unpooled.buffer(0);
     }
 
     private ByteBuf serverDecode(ByteBuf buf) throws NoSuchAlgorithmException, InvalidKeyException {
-        if (handshakeStatus == -1) {
-            buf.retain();
-            return buf;
+        if (serverHandshakeState == ServerHandshakeState.CLIENT_FINISH_RECEIVED) {
+            receiveBuffer.writeBytes(buf);
+            // server application data
+            return deobfsApplicationData(receiveBuffer);
         }
-        if (handshakeStatus == 1) {
-            return deobfsApplicationData(buf);
-        } else if (handshakeStatus == 0) {
-            receiveBuffer.resetReaderIndex();
+        if (serverHandshakeState == ServerHandshakeState.NOT_STARTED) {
             receiveBuffer.writeBytes(buf);
             if (receiveBuffer.readableBytes() <= TlsClientHello.byteLength) {
-                return Unpooled.buffer();
+                return Unpooled.buffer(0);
             }
             TlsClientHello tlsClientHello = TlsClientHello.decode(receiveBuffer);
             if (tlsClientHello.getContentType() != 0x16) {
                 log.error("Error decode tlsClientHello header obfs.");
-                return Unpooled.buffer();
+                return decodeErrorReturn();
             }
             clientId = tlsClientHello.getSessionId();
 
             byte[] randomBytes = tlsClientHello.getRandomBytes();
             if (!checkRandomBytes(randomBytes)) {
                 log.error("Client randomBytes checks failed.");
-                return Unpooled.buffer();
+                // todo
+                return decodeErrorReturn();
             }
 
+            // session ticket
             if (receiveBuffer.readableBytes() <=  TlsExtSessionTicket.byteLength) {
-                return Unpooled.buffer();
+                receiveBuffer.resetReaderIndex();
+                return Unpooled.buffer(0);
             }
             TlsExtSessionTicket tlsExtSessionTicket = TlsExtSessionTicket.decode(receiveBuffer);
             if (tlsExtSessionTicket.getSessionTicketType() != 0x0023) {
                 log.error("Error decode tlsExtSessionTicket header obfs.");
-                return Unpooled.buffer();
+                return decodeErrorReturn();
             }
             int ticketLen = tlsExtSessionTicket.getSessionTicketExtLen();
             if (receiveBuffer.readableBytes() < ticketLen) {
-                return Unpooled.buffer();
+                receiveBuffer.resetReaderIndex();
+                return Unpooled.buffer(0);
             }
-            // ignore content
             receiveBuffer.readBytes(ticketLen);
 
+            // server name indicate
+            if (receiveBuffer.readableBytes() <=  TlsExtServerName.byteLength) {
+                receiveBuffer.resetReaderIndex();
+                return Unpooled.buffer(0);
+            }
+            TlsExtServerName tlsExtServerName = TlsExtServerName.decode(receiveBuffer);
+            int serverNameLen = tlsExtServerName.getServerNameLen();
+            if (receiveBuffer.readableBytes() < serverNameLen) {
+                receiveBuffer.resetReaderIndex();
+                return Unpooled.buffer(0);
+            }
+            receiveBuffer.readBytes(serverNameLen);
+
+            // tls other ext
             if (receiveBuffer.readableBytes() < TlsExtOthers.byteLength) {
-                log.error("Error decode TlsExtOthers header obfs.");
-                return Unpooled.buffer();
+                receiveBuffer.resetReaderIndex();
+                return Unpooled.buffer(0);
             }
-            // ignore content
             receiveBuffer.readBytes(TlsExtOthers.byteLength);
-            handshakeStatus
-
-
-
-
-
+            serverHandshakeState = ServerHandshakeState.SERVER_HELLO_CENT;
         }
-        if ((handshakeStatus & 4) == 4) {
-            ByteBuf resultData = Unpooled.buffer();
+        if (serverHandshakeState == ServerHandshakeState.CLIENT_HELLO_RECEIVED) {
             receiveBuffer.writeBytes(buf);
-            while (receiveBuffer.readableBytes() > 5) {
-                if (receiveBuffer.readByte() != 0x17 || receiveBuffer.readByte() != 0x03
-                    || receiveBuffer.readByte() != 0x03) {
-                    log.error("server decode appdata error");
-                    return Unpooled.buffer(0);
-                }
-                int size = receiveBuffer.readUnsignedShort();
-                if (receiveBuffer.readableBytes() < size) {
-                    break;
-                }
-                receiveBuffer.readBytes(resultData, size);
+            if (receiveBuffer.readableBytes() < TlsChangeCipherSpec.byteLength) {
+                receiveBuffer.resetReaderIndex();
+                return Unpooled.buffer(0);
             }
-            return resultData;
+            TlsChangeCipherSpec tlsChangeCipherSpec = TlsChangeCipherSpec.decode(receiveBuffer);
+            if (tlsChangeCipherSpec.getContentType() != 0x14) {
+                log.error("Error decode tlsChangeCipherSpec header obfs.");
+                return decodeErrorReturn();
+            }
+
+            if (receiveBuffer.readableBytes() < TlsEncryptedHandshake.byteLength) {
+                receiveBuffer.resetReaderIndex();
+                return Unpooled.buffer(0);
+            }
+            TlsEncryptedHandshake tlsEncryptedHandshake = TlsEncryptedHandshake.decode(
+                receiveBuffer);
+            int encryptedDataLen = tlsEncryptedHandshake.getLen();
+            if (receiveBuffer.readableBytes() < encryptedDataLen) {
+                receiveBuffer.resetReaderIndex();
+                return Unpooled.buffer(0);
+            }
+            receiveBuffer.readBytes(encryptedDataLen);
+            serverHandshakeState = ServerHandshakeState.CLIENT_FINISH_RECEIVED;
         }
-
-        if ((handshakeStatus & 1) == 1) {
-            receiveBuffer.writeBytes(buf);
-            buf = receiveBuffer.copy();
-            ByteBuf verify = buf.copy();
-            if (buf.readableBytes() < 11) {
-                log.error("server decode data error");
-                return Unpooled.buffer(0);
-            }
-            // server change cipher spec
-            byte[] serverChangeCipherSpec = new byte[6];
-            buf.readBytes(serverChangeCipherSpec, 0, 6);
-            if (!Arrays.equals(serverChangeCipherSpec, SERVER_CHANGE_CIPHER_SPEC)) {
-                log.error("server decode data error");
-                return Unpooled.buffer(0);
-            }
-
-            // server handshake finished
-            byte[] serverHandshakeFinish = new byte[4];
-            buf.readBytes(serverHandshakeFinish, 0, 4);
-            if (!Arrays.equals(serverHandshakeFinish, SERVER_HANDSHAKE_FINISH)) {
-                log.error("server decode data error");
-                return Unpooled.buffer(0);
-            }
-            int verifyLen = buf.readUnsignedShort();
-            if (buf.readableBytes() < verifyLen) {
-                log.error("server decode data error");
-                return Unpooled.buffer(0);
-            }
-            byte[] verifyData = new byte[verifyLen];
-            verify.readBytes(verifyData, 0, verifyLen);
-            byte[] result = hmacWithSha1("HmacSHA1", verifyData, serverKey + clientId);
-            byte[] hmacVerifyData = new byte[10];
-            verify.readBytes(hmacVerifyData, 0, 10);
-            if (!Arrays.equals(Arrays.copyOfRange(result, 0, 10), hmacVerifyData)) {
-                log.error("server decode data error");
-                return Unpooled.buffer(0);
-            }
-            receiveBuffer.writeBytes(verify);
-            handshakeStatus |= 4;
-            return serverDecode(Unpooled.buffer(0));
-        }
-
-        receiveBuffer.writeBytes(buf);
-        buf = receiveBuffer;
-        ByteBuf ognBuf = buf.copy();
-        if (buf.readableBytes() < 3) {
-            return Unpooled.buffer(0);
-        }
-
         return Unpooled.buffer(0);
     }
 
     ByteBuf decodeErrorReturn() {
-        tlsHandshakeState = TlsHandshakeState.NOT_STARTED;
+        serverHandshakeState = ServerHandshakeState.NOT_STARTED;
+        clientHandshakeState = ClientHandshakeState.NOT_STARTED;
         receiveBuffer.clear();
-
+        sendBuffer.clear();
         overhead = 0;
         ByteBuf result = Unpooled.buffer(2048);
         byte[] r = new byte[2048];
@@ -530,17 +509,19 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
     }
 
     ByteBuf deobfsApplicationData(ByteBuf buf) {
-        ByteBuf resultData = Unpooled.buffer();
+        ByteBuf resultData = Unpooled.buffer(0);
         while (buf.readableBytes() > 5) {
-            if (buf.readByte() != 0x17 || buf.readByte() != 0x03
-                || buf.readByte() != 0x03) {
+            if (buf.getByte(buf.readerIndex()) != 0x17
+                || buf.getByte(buf.readerIndex()+1) != 0x03
+                || buf.getByte(buf.readerIndex()+2) != 0x03) {
                 log.error("Decode tls application data failed, error header");
                 return decodeErrorReturn();
             }
-            int size = buf.readUnsignedShort();
+            int size = buf.getUnsignedShort(buf.readerIndex()+3);
             if (buf.readableBytes() < size) {
                 break;
             }
+            buf.readBytes(5);
             buf.readBytes(resultData, size);
         }
         return resultData;

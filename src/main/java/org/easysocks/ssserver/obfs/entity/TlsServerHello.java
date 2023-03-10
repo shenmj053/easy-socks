@@ -17,9 +17,9 @@ public class TlsServerHello {
     int handshakeVersion = 0x0303;
 
     long randomUnixTime;
-    short[] randomBytes = new short[28];
+    byte[] randomBytes = new byte[28];
     short  sessionIdLen = 32;
-    short[] sessionId = new short[32];
+    byte[] sessionId = new byte[32];
 
     int cipherSuite = 0xcca8;
     short compMethod = 0x00;
