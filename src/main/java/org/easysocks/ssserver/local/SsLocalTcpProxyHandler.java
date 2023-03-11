@@ -14,6 +14,7 @@ import io.netty.util.ReferenceCountUtil;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.easysocks.ssserver.cipher.AeadCipher;
@@ -65,7 +66,7 @@ public class SsLocalTcpProxyHandler extends SimpleChannelInboundHandler<ByteBuf>
                 .handler(new ChannelInitializer<Channel>() {
                     @Override
                     protected void initChannel(Channel channel) throws Exception {
-                        channel.pipeline()
+                        ChannelPipeline channelPipeline = channel.pipeline()
                             .addLast("timeout",
                                 new IdleStateHandler(0, 0, 300, TimeUnit.SECONDS) {
                                     @Override
@@ -74,9 +75,12 @@ public class SsLocalTcpProxyHandler extends SimpleChannelInboundHandler<ByteBuf>
                                         return super.newIdleStateEvent(state, first);
                                     }
                                 }
-                            )
-                            .addLast("obfs", new HttpSimpleObfs(ssConfig, true))
-                            .addLast("ssCipherCodec", new SsCipherCodec(aeadCipher))
+                            );
+                        if (Objects.equals(ssConfig.getObfs(), "http")) {
+                            channelPipeline.addLast("obfs", new HttpSimpleObfs(ssConfig, true));
+                        }
+
+                        channelPipeline.addLast("ssCipherCodec", new SsCipherCodec(aeadCipher))
                             .addLast("ssProtocolCodec", new SsProtocolCodec(true))
                             .addLast("relay", new SimpleChannelInboundHandler<ByteBuf>(false) {
                                 @Override

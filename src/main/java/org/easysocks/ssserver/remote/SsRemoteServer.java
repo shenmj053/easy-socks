@@ -4,6 +4,7 @@ import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
+import io.netty.channel.ChannelPipeline;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
@@ -11,6 +12,7 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.easysocks.ssserver.SsServer;
@@ -46,15 +48,18 @@ public class SsRemoteServer implements SsServer {
                     protected void initChannel(NioSocketChannel ch) throws Exception {
                         AeadCipher aeadCipher = AeadCipherFactory.create(ssConfig);
                         ch.attr(SsGlobalAttribute.IS_UDP).set(false);
-                        ch.pipeline()
+                        ChannelPipeline channelPipeline = ch.pipeline()
                             .addLast("timeout", new IdleStateHandler(0, 0, 300, TimeUnit.SECONDS) {
                                 @Override
                                 protected IdleStateEvent newIdleStateEvent(IdleState state, boolean first) {
                                     ch.close();
                                     return super.newIdleStateEvent(state, first);
                                 }
-                            })
-                            .addLast("obfs", new HttpSimpleObfs(ssConfig, false))
+                            });
+                        if (Objects.equals(ssConfig.getObfs(), "http")) {
+                            channelPipeline.addLast("obfs", new HttpSimpleObfs(ssConfig, false));
+                        }
+                        channelPipeline
                             //ss message received from client
                             .addLast(new SsRemoteServerReceiverHandler())
                             //ss message send to client

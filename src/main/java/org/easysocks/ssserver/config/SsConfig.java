@@ -23,4 +23,6 @@ public class SsConfig {
     @JsonProperty("server_name")
     private String mockServerName;
 
+    @JsonProperty("obfs")
+    private String obfs;
 }

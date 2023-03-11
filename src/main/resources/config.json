@@ -1,8 +1,9 @@
 {
   "server_address":"0.0.0.0",
-  "server_port":5678,
-  "client_port":1234,
+  "server_port":15678,
+  "client_port":11234,
   "password":"supersecret",
-  "method":"aes-256-gcm",
-  "server_name": "www.bing.com"
+  "method":"chacha20-ietf-poly1305",
+  "server_name": "www.bing.com",
+  "obfs": ""
 }
