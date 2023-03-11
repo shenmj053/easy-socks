@@ -26,4 +26,7 @@ public class SsConfig {
     @JsonProperty("mock_server_address")
     private String mockServerAddress;
 
+    @JsonProperty("server_key")
+    private String serverKey;
+
 }
