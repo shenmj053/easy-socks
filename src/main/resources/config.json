@@ -4,6 +4,6 @@
   "client_port":11234,
   "password":"supersecret",
   "method":"chacha20-ietf-poly1305",
-  "server_name": "www.bing.com",
-  "obfs": ""
+  "obfs": "",
+  "obfs_host": "www.bing.com"
 }

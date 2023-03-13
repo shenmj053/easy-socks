@@ -8,7 +8,7 @@ import org.easysocks.ssserver.config.SsConfig;
 public class AeadCipherFactory {
     public static AeadCipher create(SsConfig ssConfig) throws IllegalArgumentException {
         Optional<AeadCipherEnum> aeadCipherEnumOptional = AeadCipherEnum.parse(ssConfig.getMethod());
-        if (!aeadCipherEnumOptional.isPresent()) {
+        if (aeadCipherEnumOptional.isEmpty()) {
             log.error("Invalid AEAD cipher method {}", ssConfig.getMethod());
             throw new IllegalArgumentException("Invalid AEAD cipher method");
         }

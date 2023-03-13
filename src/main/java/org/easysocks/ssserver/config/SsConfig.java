@@ -20,9 +20,9 @@ public class SsConfig {
     @JsonProperty("client_port")
     private Integer clientPort;
 
-    @JsonProperty("server_name")
-    private String mockServerName;
-
     @JsonProperty("obfs")
     private String obfs;
+
+    @JsonProperty("obfs_host")
+    private String obfsHost;
 }

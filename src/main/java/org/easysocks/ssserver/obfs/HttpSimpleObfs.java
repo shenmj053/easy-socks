@@ -54,7 +54,7 @@ public class HttpSimpleObfs extends MessageToMessageCodec<Object, Object> {
         ByteBuf httpHeadBuf = Unpooled.buffer();
         httpHeadBuf.writeBytes("GET / ".getBytes());
         httpHeadBuf.writeBytes("HTTP/1.1\r\n".getBytes());
-        httpHeadBuf.writeBytes(("Host: " + ssConfig.getMockServerName() + "\r\n").getBytes());
+        httpHeadBuf.writeBytes(("Host: " + ssConfig.getObfsHost() + "\r\n").getBytes());
         String userAgent = "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36\r\n";
         httpHeadBuf.writeBytes(userAgent.getBytes());
         httpHeadBuf.writeBytes("Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\n".getBytes());
@@ -126,12 +126,5 @@ public class HttpSimpleObfs extends MessageToMessageCodec<Object, Object> {
             return desBuf;
         }
         return Unpooled.buffer(0);
-    }
-
-    public static void main(String[] args) {
-        ByteBuf desBuf = Unpooled.buffer();
-        desBuf.writeBytes("afsfasfsdfsafa".getBytes());
-        desBuf.readableBytes();
-        desBuf.clear();
     }
 }
