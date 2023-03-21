@@ -23,8 +23,8 @@ public class SsConfig {
     @JsonProperty("obfs")
     private String obfs;
 
-    @JsonProperty("obfs_host")
-    private String obfsHost;
+    @JsonProperty("obfs_param")
+    private String obfsParam;
 
     @JsonProperty("server_key")
     private String serverKey;

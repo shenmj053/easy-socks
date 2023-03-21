@@ -76,7 +76,7 @@ public class SsLocalTcpProxyHandler extends SimpleChannelInboundHandler<ByteBuf>
                                     }
                                 }
                             );
-                        if (Objects.equals(ssConfig.getObfs(), "http")) {
+                        if (Objects.equals(ssConfig.getObfs(), "http-simple")) {
                             channelPipeline.addLast("obfs", new HttpSimpleObfs(ssConfig, true));
                         }
 

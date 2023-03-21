@@ -53,6 +53,7 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
     private byte[] clientId;
     private final byte[] serverKey;
     private final SsConfig ssConfig;
+    private String serverName;
     private final ByteBuf receiveBuffer = Unpooled.buffer(65535);
     private final ByteBuf sendBuffer = Unpooled.buffer(65535);
     private final Map<String, byte[]> ticketBufCache = new HashMap<>();
@@ -80,6 +81,8 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
         byte[] randomBytes = new byte[32];
         new Random().nextBytes(randomBytes);
         this.clientId = randomBytes;
+        this.serverName = ssConfig.getObfsParam().split(";")[0].split("=")[1].split(",")[0];
+
     }
 
     @Override
@@ -218,7 +221,7 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
     }
 
     private void serverNameIndicate(TlsExtServerName tlsExtServerName) {
-        byte[] host = ssConfig.getObfsHost().getBytes();
+        byte[] host = serverName.getBytes();
         tlsExtServerName.setExtLen(host.length + 3 + 2);
         tlsExtServerName.setServerNameListLen(host.length + 3);
         tlsExtServerName.setServerNameLen(host.length);
@@ -256,7 +259,7 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
             // ext begin coding
             // session ticket
             TlsExtSessionTicket tlsExtSessionTicket = new TlsExtSessionTicket();
-            String host = ssConfig.getObfsHost();
+            String host = serverName;
             if (!ticketBufCache.containsKey(host)) {
                 ticketBufCache.put(host, generateSessionTicket());
             }
@@ -268,7 +271,7 @@ public class TlsObfs extends MessageToMessageCodec<Object, Object> {
             TlsExtServerName tlsExtServerName = new TlsExtServerName();
             serverNameIndicate(tlsExtServerName);
             ByteBuf tlsExtServerNameByteBuf = TlsExtServerName.encode(tlsExtServerName);
-            tlsExtServerNameByteBuf.writeBytes(ssConfig.getObfsHost().getBytes());
+            tlsExtServerNameByteBuf.writeBytes(serverName.getBytes());
 
             /* Other Extensions */
             TlsExtOthers tlsExtOthers = new TlsExtOthers();

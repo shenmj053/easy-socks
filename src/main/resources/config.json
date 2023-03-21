@@ -2,8 +2,8 @@
   "server_address":"0.0.0.0",
   "server_port":15678,
   "client_port":11234,
-  "password":"supersecret",
+  "password":"secret",
   "method":"chacha20-ietf-poly1305",
-  "obfs": "",
-  "obfs_host": "www.bing.com"
+  "obfs": "http-simple",
+  "obfs_param": "obfs-host=www.bing.com,www.bing.com"
 }

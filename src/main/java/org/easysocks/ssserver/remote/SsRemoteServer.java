@@ -56,7 +56,7 @@ public class SsRemoteServer implements SsServer {
                                     return super.newIdleStateEvent(state, first);
                                 }
                             });
-                        if (Objects.equals(ssConfig.getObfs(), "http")) {
+                        if (Objects.equals(ssConfig.getObfs(), "http-simple")) {
                             channelPipeline.addLast("obfs", new HttpSimpleObfs(ssConfig, false));
                         }
                         channelPipeline

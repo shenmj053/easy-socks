@@ -57,7 +57,7 @@ public class SsApplication {
         }
 
         Optional<AeadCipherEnum> aeadCipherEnumOptional = AeadCipherEnum.parse(ssConfig.getMethod());
-        if (!aeadCipherEnumOptional.isPresent()) {
+        if (aeadCipherEnumOptional.isEmpty()) {
             log.error("Invalid AEAD cipher method {}", ssConfig.getMethod());
             return;
         }
