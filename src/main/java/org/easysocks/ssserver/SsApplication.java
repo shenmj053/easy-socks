@@ -52,7 +52,7 @@ public class SsApplication {
         try {
             ssConfig = ConfigReader.read(configFile);
         } catch (Exception e) {
-            log.error("Server start failed, unable to load config file.");
+            log.error("Server start failed, unable to load config file.", e);
             return;
         }
 

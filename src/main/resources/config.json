@@ -3,7 +3,7 @@
   "server_port":15678,
   "client_port":11234,
   "password":"secret",
-  "method":"chacha20-ietf-poly1305",
+  "method":"aes-256-gcm",
   "obfs": "http-simple",
-  "obfs_param": "obfs-host=www.bing.com,www.bing.com"
+  "obfs_param": "obfs-host=www.bing.com"
 }

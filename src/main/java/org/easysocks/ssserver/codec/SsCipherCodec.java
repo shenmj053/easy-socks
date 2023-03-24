@@ -24,17 +24,16 @@ public class SsCipherCodec extends MessageToMessageCodec<Object, Object> {
         } else if (msg instanceof ByteBuf) {
             buf = (ByteBuf) msg;
         } else {
-            throw new Exception("unsupported msg type:" + msg.getClass());
+            throw new Exception("Encode error, unsupported msg type:" + msg.getClass());
         }
-
-        byte[] encryptedBytes = encrypt(buf);
-
-        if (encryptedBytes == null || encryptedBytes.length == 0) {
-            return;
+        try {
+            ByteBuf encryptedByteBuf = aeadCipher.encrypt(buf);
+            if (encryptedByteBuf.readableBytes() > 0) {
+                out.add(encryptedByteBuf);
+            }
+        } catch (Exception e) {
+            log.error("Failed to encrypt bytes, ", e);
         }
-        ByteBuf encryptedBuf = ctx.alloc().buffer(encryptedBytes.length);
-        encryptedBuf.writeBytes(encryptedBytes);
-        out.add(encryptedBuf);
     }
 
     @Override
@@ -45,37 +44,16 @@ public class SsCipherCodec extends MessageToMessageCodec<Object, Object> {
         } else if (msg instanceof ByteBuf) {
             buf = (ByteBuf) msg;
         } else {
-            throw new Exception("unsupported msg type:" + msg.getClass());
+            throw new Exception("Decode error, unsupported msg type:" + msg.getClass());
         }
 
-        byte[] decryptedBytes = decrypt(buf);
-        if (decryptedBytes.length == 0) {
-            return;
-        }
-        ByteBuf decryptedBuf = ctx.alloc().buffer(decryptedBytes.length);
-        decryptedBuf.writeBytes(decryptedBytes);
-        out.add(decryptedBuf);
-    }
-
-    private byte[] encrypt(ByteBuf buf) {
-        byte[] srcBytes = new byte[buf.readableBytes()];
-        buf.getBytes(0, srcBytes);
         try {
-            return aeadCipher.encrypt(srcBytes);
-        } catch (Exception e) {
-            log.error("Failed to encrypt bytes, ", e);
-            return new byte[]{};
-        }
-    }
-
-    private byte[] decrypt(ByteBuf buf) {
-        byte[] srcBytes = new byte[buf.readableBytes()];
-        buf.getBytes(0, srcBytes);
-        try {
-            return aeadCipher.decrypt(srcBytes);
+            ByteBuf decryptedByteBuf = aeadCipher.decrypt(buf);
+            if (decryptedByteBuf.readableBytes() > 0) {
+                out.add(decryptedByteBuf);
+            }
         } catch (Exception e) {
             log.error("Failed to decrypt bytes, ", e);
-            return new byte[]{};
         }
     }
 }

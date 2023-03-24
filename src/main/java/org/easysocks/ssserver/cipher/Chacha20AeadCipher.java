@@ -45,9 +45,8 @@ public class Chacha20AeadCipher implements AeadCipher {
     }
 
     @Override
-    public byte[] encrypt(byte[] src) throws Exception {
+    public ByteBuf encrypt(ByteBuf src) throws Exception {
         ByteBuf desByteBuf = Unpooled.buffer();
-
         if (!encryptSaltSet) {
             byte[] salt = randomBytes(aeadCipher.getSaltSize());
             desByteBuf.writeBytes(salt);
@@ -56,48 +55,31 @@ public class Chacha20AeadCipher implements AeadCipher {
             encipher = Cipher.getInstance("ChaCha20-Poly1305/None/NoPadding");
             encryptSaltSet = true;
         }
-
         tcpEncrypt(src, desByteBuf);
-
-        byte[] result = new byte[desByteBuf.writerIndex()];
-        desByteBuf.readBytes(result);
-        return result;
+        return desByteBuf;
     }
 
     @Override
-    public byte[] decrypt(byte[] src) throws Exception {
+    public ByteBuf decrypt(ByteBuf srcBuf) throws Exception {
         ByteBuf desByteBuf = Unpooled.buffer();
-        ByteBuf srcBuf = Unpooled.buffer();
-        srcBuf.writeBytes(src);
-        byte[] remaining;
         if (!decryptSaltSet) {
             byte[] salt = new byte[aeadCipher.getSaltSize()];
             srcBuf.readBytes(salt, 0, salt.length);
             System.out.println("decrypt salt: " + Arrays.toString(salt));
             decodeSubKey = genSubKey(salt);
             decipher = Cipher.getInstance("ChaCha20-Poly1305/None/NoPadding");
-
             decryptSaltSet = true;
-            remaining = new byte[srcBuf.readableBytes()];
-            srcBuf.readBytes(remaining);
-        } else {
-            remaining = src;
         }
-
-        tcpDecrypt(remaining, desByteBuf);
-
-        byte[] result = new byte[desByteBuf.writerIndex()];
-        desByteBuf.readBytes(result);
-        return result;
+        tcpDecrypt(srcBuf, desByteBuf);
+        return desByteBuf;
     }
 
     /**
      * AE_encrypt(key, nonce, message) => (ciphertext, tag) TCP:[encrypted payload length][length
      * tag][encrypted payload][payload tag]
      */
-    private void tcpEncrypt(byte[] src, ByteBuf desByteBuf)
+    private void tcpEncrypt(ByteBuf srcBuf, ByteBuf desByteBuf)
         throws InvalidAlgorithmParameterException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
-        ByteBuf srcBuf = Unpooled.copiedBuffer(src);
         while (srcBuf.isReadable()) {
             // start write encrypted payload length and length tag
             int payloadLength = Math.min(srcBuf.readableBytes(), PAYLOAD_SIZE_MASK);
@@ -135,10 +117,8 @@ public class Chacha20AeadCipher implements AeadCipher {
      * AE_decrypt(key, nonce, ciphertext, tag) => message TCP:[encrypted payload length][length
      * tag][encrypted payload][payload tag]
      */
-    private void tcpDecrypt(byte[] src, ByteBuf desByteBuf)
+    private void tcpDecrypt(ByteBuf srcBuf, ByteBuf desByteBuf)
         throws InvalidAlgorithmParameterException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
-        ByteBuf srcBuf = Unpooled.buffer();
-        srcBuf.writeBytes(src);
         while (srcBuf.readableBytes() > 0) {
             // [encrypted payload length][length tag]
             if (decodeBuffer.readableBytes() == 0) {
@@ -225,16 +205,19 @@ public class Chacha20AeadCipher implements AeadCipher {
     }
 
     public static void main(String[] args) throws Exception {
-        String plainText = "This";
+        String plainText = "abcd";
         Chacha20AeadCipher aes256GcmCipher1 = new Chacha20AeadCipher(
             AeadCipherEnum.AEAD_CHACHA20_POLY1305, "aes-256-gcm");
-        byte[] res = aes256GcmCipher1.encrypt(plainText.getBytes());
-        System.out.println("EEEEncrypted Text : " + Base64.getEncoder().encodeToString(res));
+        ByteBuf res = aes256GcmCipher1.encrypt(Unpooled.buffer().writeBytes(plainText.getBytes()));
+        byte[] resBytes = new byte[res.readableBytes()];
+        res.getBytes(0, resBytes);
+        System.out.println("EEEEncrypted Text : " + Base64.getEncoder().encodeToString(resBytes));
 
         Chacha20AeadCipher aes256GcmCipher2 = new Chacha20AeadCipher(
             AeadCipherEnum.AEAD_CHACHA20_POLY1305, "aes-256-gcm");
-        byte[] decodeOutput = aes256GcmCipher2.decrypt(res);
-        System.out.println(decodeOutput.length);
-        System.out.println("DDDncrypted Text : " + new String(decodeOutput));
+        ByteBuf decodeOutput = aes256GcmCipher2.decrypt(res);
+        byte[] decodeOutputBytes = new byte[decodeOutput.readableBytes()];
+        decodeOutput.readBytes(decodeOutputBytes);
+        System.out.println("DDDncrypted Text : " + new String(decodeOutputBytes));
     }
 }
